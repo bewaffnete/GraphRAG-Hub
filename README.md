@@ -1,4 +1,4 @@
-# 🕸️ GraphRAG-Hub
+# GraphRAG-Hub
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Neo4j](https://img.shields.io/badge/database-Neo4j-green.svg)](https://neo4j.com/)
@@ -9,21 +9,21 @@
 
 ---
 
-## ✨ Key Features
+## ⚡️Key Features
 
-*   **🔍 Deep AST Analysis**: Extracts more than just text. It captures class hierarchies, function signatures, parameters, return types, and exceptions.
-*   **🧠 AST Enrichment**:
+*   **Deep AST Analysis**: Extracts more than just text. It captures class hierarchies, function signatures, parameters, return types, and exceptions.
+*   **AST Enrichment**:
     *   **Logic Skeleton**: Strips away boilerplate and noise, keeping only the control flow (if/else, loops, calls) for better LLM understanding.
     *   **Complexity Metrics**: Computes cyclomatic complexity, nesting depth, and branch counts.
     *   **Call Graphs**: Maps internal function calls and constant usage.
-*   **📂 Multi-Source Ingestion**: Parse local directories or entire libraries into portable JSON snapshots.
-*   **⚡ Hybrid Search**: Combines full-text search, vector embeddings (OpenAI, Gemini, Ollama), BM25 and graph traversal (2-hop neighborhood).
-*   **🤖 Agentic Workflow**: Powered by **LangGraph**, it decomposes complex technical queries into sub-queries, discovers relevant nodes, and synthesizes answers with full implementation context.
-*   **💻 Interactive CLI**: A beautiful, `rich`-powered CLI for seamless ingestion and exploration.
+*   **Multi-Source Ingestion**: Parse local directories or entire libraries into portable JSON snapshots.
+*   **Hybrid Search**: Combines full-text search, vector embeddings (OpenAI, Gemini, Ollama), BM25 and graph traversal (2-hop neighborhood).
+*   **Agentic Workflow**: Powered by **LangGraph**, it decomposes complex technical queries into sub-queries, discovers relevant nodes, and synthesizes answers with full implementation context.
+*   **Interactive CLI**: A beautiful, `rich`-powered CLI for seamless ingestion and exploration.
 
 ---
 
-## 🏛️ The Knowledge Graph
+## The Knowledge Graph
 
 GraphRAG-Hub builds a multi-layered graph in **Neo4j** with the following schema:
 
@@ -117,11 +117,5 @@ graph-rag chat "Explain the relationship between the parser and the neo4j loader
 -   **Orchestration**: [LangChain](https://github.com/langchain-ai/langchain) & [LangGraph](https://github.com/langchain-ai/langgraph)
 -   **LLMs**: OpenAI, Google Gemini, Ollama (Local)
 -   **CLI**: [Rich](https://github.com/Textualize/rich), [Questionary](https://github.com/tmbo/questionary)
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
