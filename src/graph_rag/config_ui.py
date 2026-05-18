@@ -5,12 +5,27 @@ import importlib.util
 
 try:
     import questionary
+    from questionary import Style
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
     from dotenv import set_key, load_dotenv
 except ImportError:
     raise ImportError("Interactive CLI requires 'questionary', 'rich', and 'python-dotenv'. Install with: pip install -e '.[cli]'")
+
+# Custom style for questionary to fix visibility issues (using black for maximum contrast)
+custom_style = Style([
+    ('qmark', 'fg:#000000 bold'),       # question mark
+    ('question', 'fg:#000000 bold'),    # question text
+    ('answer', 'fg:#000000 bold'),      # submitted answer text
+    ('pointer', 'fg:#000000 bold'),     # pointer used in select and checkbox
+    ('highlighted', 'fg:#000000 bold'), # pointed-at choice in select and checkbox
+    ('selected', 'fg:#000000'),         # (checkbox) checked item
+    ('separator', 'fg:#000000'),        # separator in lists
+    ('instruction', 'fg:#000000'),      # user instructions
+    ('text', 'fg:#000000'),             # plain text
+    ('disabled', 'fg:#858585 italic')   # disabled choices
+])
 
 ENV_FILE = Path(".env")
 console = Console()
@@ -33,25 +48,25 @@ def setup_neo4j_interactive() -> None:
     username = os.getenv("NEO4J_USERNAME", "neo4j")
     database = os.getenv("NEO4J_DATABASE", "neo4j")
 
-    uri = questionary.text("Neo4j URI:", default=uri).ask()
+    uri = questionary.text("Neo4j URI:", default=uri, style=custom_style).ask()
     if not uri: return
     _save_env("NEO4J_URI", uri)
 
-    username = questionary.text("Neo4j Username:", default=username).ask()
+    username = questionary.text("Neo4j Username:", default=username, style=custom_style).ask()
     if not username: return
     _save_env("NEO4J_USERNAME", username)
 
-    password = questionary.password("Neo4j Password:").ask()
+    password = questionary.password("Neo4j Password:", style=custom_style).ask()
     if password:
         _save_env("NEO4J_PASSWORD", password)
     else:
         password = os.getenv("NEO4J_PASSWORD")
 
-    database = questionary.text("Neo4j Database:", default=database).ask()
+    database = questionary.text("Neo4j Database:", default=database, style=custom_style).ask()
     if not database: return
     _save_env("NEO4J_DATABASE", database)
 
-    if questionary.confirm("Test connection?").ask():
+    if questionary.confirm("Test connection?", style=custom_style).ask():
         console.print("[cyan]Testing Neo4j connection...[/cyan]")
         try:
             from neo4j import GraphDatabase
@@ -69,7 +84,8 @@ def setup_embedding_interactive() -> None:
     provider = questionary.select(
         "Select Embedding Provider:",
         choices=["hash", "openai", "gemini", "ollama"],
-        default=provider
+        default=provider,
+        style=custom_style
     ).ask()
     if not provider: return
     
@@ -77,10 +93,10 @@ def setup_embedding_interactive() -> None:
 
     if provider == "openai":
         model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
-        model = questionary.text("OpenAI Model:", default=model).ask()
+        model = questionary.text("OpenAI Model:", default=model, style=custom_style).ask()
         if model: _save_env("EMBEDDING_MODEL", model)
         
-        api_key = questionary.password("OpenAI API Key:").ask()
+        api_key = questionary.password("OpenAI API Key:", style=custom_style).ask()
         if api_key: _save_env("OPENAI_API_KEY", api_key)
         
     elif provider == "gemini":
@@ -88,11 +104,12 @@ def setup_embedding_interactive() -> None:
         model = questionary.autocomplete(
             "Gemini Model:",
             choices=KNOWN_GEMINI_MODELS,
-            default=model
+            default=model,
+            style=custom_style
         ).ask()
         if model: _save_env("EMBEDDING_MODEL", model)
         
-        api_key = questionary.password("Gemini API Key:").ask()
+        api_key = questionary.password("Gemini API Key:", style=custom_style).ask()
         if api_key: _save_env("GEMINI_API_KEY", api_key)
         
     elif provider == "ollama":
@@ -100,12 +117,13 @@ def setup_embedding_interactive() -> None:
         model = questionary.autocomplete(
             "Ollama Model:",
             choices=KNOWN_OLLAMA_MODELS,
-            default=model
+            default=model,
+            style=custom_style
         ).ask()
         if model: _save_env("EMBEDDING_MODEL", model)
         
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        base_url = questionary.text("Ollama Base URL:", default=base_url).ask()
+        base_url = questionary.text("Ollama Base URL:", default=base_url, style=custom_style).ask()
         if base_url: _save_env("OLLAMA_BASE_URL", base_url)
         
     elif provider == "hash":
@@ -123,14 +141,15 @@ def select_installed_package_interactive() -> str | None:
     
     selection = questionary.autocomplete(
         "Search or select a library to ingest:",
-        choices=choices
+        choices=choices,
+        style=custom_style
     ).ask()
     
     if not selection:
         return None
         
     if selection == "[Enter manual path]":
-        path = questionary.path("Path to local repository or package root:").ask()
+        path = questionary.path("Path to local repository or package root:", style=custom_style).ask()
         return path
         
     # Resolve physical path of the selected package
@@ -149,7 +168,7 @@ def select_installed_package_interactive() -> str | None:
         pass
         
     console.print(f"[yellow]Could not automatically resolve physical path for '{selection}'.[/yellow]")
-    path = questionary.path("Please enter path manually:").ask()
+    path = questionary.path("Please enter path manually:", style=custom_style).ask()
     return path
 
 
