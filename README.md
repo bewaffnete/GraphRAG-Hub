@@ -189,16 +189,6 @@ The **LangGraph agent** then decomposes your query into sub-questions, retrieves
 
 ---
 
-## Roadmap
-
-- [ ] MCP server — plug GraphRAG-Hub into Claude Code, Cursor, Copilot
-- [ ] Multi-language support via Tree-sitter (TypeScript, Java, Go)
-- [ ] Incremental updates via `git diff` — no full re-index on every change
-- [ ] Cross-library graph — trace dependencies between indexed libraries
-- [ ] GitHub Actions integration for CI-based graph updates
-
----
-
 ## Contributing
 
 Issues and PRs are welcome. If you're indexing a library and hit a parsing edge case, open an issue with the library name and version.
