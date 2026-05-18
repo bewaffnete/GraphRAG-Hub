@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     embed_parser.set_defaults(func=run_embed)
 
     ingest_parser = subparsers.add_parser("ingest", help="Parse, load into Neo4j, and embed in one command.")
-    ingest_parser.add_argument("path", help="Path to a local repository or package root.")
+    ingest_parser.add_argument("path", nargs="?", help="Path to a local repository or package root. If omitted, opens an interactive selector.")
     ingest_parser.add_argument("--snapshot-output", help="Optional path to write the parsed snapshot JSON.")
     ingest_parser.add_argument("--skip-embed", action="store_true", help="Only parse and load, without embeddings.")
     add_neo4j_args(ingest_parser)
@@ -71,6 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
     chat_parser = subparsers.add_parser("chat", help="Agentic search with query decomposition and synthesis.")
     chat_parser.add_argument("query", help="User query for the agent.")
     chat_parser.set_defaults(func=run_chat)
+
+    setup_parser = subparsers.add_parser("setup", help="Open the interactive configuration control panel.")
+    setup_parser.set_defaults(func=run_setup)
 
     return parser
 
@@ -131,6 +134,14 @@ def run_embed(args: argparse.Namespace) -> None:
 
 def run_ingest(args: argparse.Namespace) -> None:
     from .query_decomposition import register_graph_in_config
+    if not args.path:
+        from .config_ui import select_installed_package_interactive
+        path = select_installed_package_interactive()
+        if not path:
+            print("No path selected. Exiting.")
+            return
+        args.path = path
+
     snapshot = parse_python_library(Path(args.path))
     if args.snapshot_output:
         Path(args.snapshot_output).write_text(snapshot.to_json(), encoding="utf-8")
@@ -195,6 +206,11 @@ def run_chat(args: argparse.Namespace) -> None:
     print("FINAL AGENT ANSWER")
     print("="*40)
     print(result.get("final_answer", "No answer generated."))
+
+
+def run_setup(args: argparse.Namespace) -> None:
+    interactive_main()
+
 
 
 def load_snapshot_from_args(args: argparse.Namespace) -> LibrarySnapshot:
@@ -336,170 +352,181 @@ def interactive_main() -> None:
     from rich.console import Console
     from rich.panel import Panel
     from rich.markdown import Markdown
+    from dotenv import load_dotenv
+    from .config_ui import print_config_status, setup_neo4j_interactive, setup_embedding_interactive
 
     console = Console()
-    console.print(Panel.fit("[bold cyan]Welcome to Graph RAG Interactive CLI[/bold cyan]"))
 
-    action = questionary.select(
-        "What would you like to do?",
-        choices=[
-            "Ingest a local repository",
-            "Search (Retrieve) from Graph Hub",
-            "Agentic Chat (Decomposition + Synthesis)",
-            "Exit"
-        ]
-    ).ask()
+    while True:
+        load_dotenv()
+        console.print(Panel.fit("[bold cyan]Welcome to Graph RAG Interactive CLI[/bold cyan]"))
+        print_config_status()
 
-    if action == "Exit" or action is None:
-        return
+        action = questionary.select(
+            "What would you like to do?",
+            choices=[
+                "Ingest a local repository",
+                "Search (Retrieve) from Graph Hub",
+                "Agentic Chat (Decomposition + Synthesis)",
+                "Configure Neo4j Database",
+                "Configure Embedding Provider",
+                "Exit"
+            ]
+        ).ask()
 
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    username = os.getenv("NEO4J_USERNAME", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD")
-    database = os.getenv("NEO4J_DATABASE", "neo4j")
+        if action == "Exit" or action is None:
+            break
 
-    if not password:
-        password = questionary.password("Neo4j password (NEO4J_PASSWORD not set):").ask()
+        if action == "Configure Neo4j Database":
+            setup_neo4j_interactive()
+            console.print("\n[cyan]Press Enter to return to main menu...[/cyan]")
+            input()
+            continue
+
+        if action == "Configure Embedding Provider":
+            setup_embedding_interactive()
+            console.print("\n[cyan]Press Enter to return to main menu...[/cyan]")
+            input()
+            continue
+
+        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        username = os.getenv("NEO4J_USERNAME", "neo4j")
+        password = os.getenv("NEO4J_PASSWORD")
+        database = os.getenv("NEO4J_DATABASE", "neo4j")
+
         if not password:
-            return
+            password = questionary.password("Neo4j password (NEO4J_PASSWORD not set):").ask()
+            if not password:
+                continue
 
-    # Mock an argparse namespace to reuse existing functions
-    args = argparse.Namespace(
-        uri=uri,
-        username=username,
-        password=password,
-        database=database,
-        provider=os.getenv("EMBEDDING_PROVIDER", "hash"),
-        model=os.getenv("EMBEDDING_MODEL", "hash-embedding-v1"),
-        dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "256")),
-        similarity="cosine",
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        gemini_api_key=os.getenv("GEMINI_API_KEY"),
-        gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
-        gemini_task_type=os.getenv("GEMINI_TASK_TYPE", "RETRIEVAL_DOCUMENT"),
-        ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        ollama_truncate=True,
-    )
-
-    if action == "Ingest a local repository":
-        path = questionary.path("Path to repository or package:").ask()
-        if not path:
-            return
-        args.path = path
-
-        provider = questionary.select(
-            "Embedding Provider:",
-            choices=["hash", "openai", "gemini", "ollama"],
-            default=args.provider
-        ).ask()
-        if not provider:
-            return
-        args.provider = provider
-
-        model = questionary.text("Embedding Model:", default=args.model).ask()
-        if not model:
-            return
-        args.model = model
-
-        args.snapshot_output = None
-        args.skip_embed = False
-        args.batch_size = 32
-        args.batch_delay_seconds = None
-        args.max_text_length = 12000
-        args.skip_modules = False
-        args.skip_classes = False
-        args.skip_functions = False
-        args.skip_examples = False
-        args.embedding_schema_version = EMBEDDING_SCHEMA_VERSION
-
-        console.print("[cyan]Ingesting repository (this may take a while)...[/cyan]")
-        try:
-            run_ingest(args)
-            console.print("[bold green]Ingestion complete![/bold green]")
-        except Exception as e:
-            console.print(f"[bold red]Error during ingestion: {e}[/bold red]")
-
-    elif action == "Search (Retrieve) from Graph Hub":
-        graphs = get_available_graphs(uri, username, password, database)
-        choices = ["All"] + graphs if graphs else ["All"]
-        
-        graph_id = questionary.select(
-            "Which library to search?",
-            choices=choices
-        ).ask()
-        if not graph_id:
-            return
-        args.graph_id = None if graph_id == "All" else graph_id
-
-        query = questionary.text("Search query:").ask()
-        if not query:
-            return
-        args.query = query
-
-        args.gemini_task_type = os.getenv("GEMINI_QUERY_TASK_TYPE", "RETRIEVAL_QUERY")
-        args.top_k = 10
-        args.max_entities = 10
-        args.keyword_k = 8
-        args.vector_k = 8
-        args.hops = 2
-        args.route_top_k = 3
-        args.context_max_chars = 12000
-        args.class_boost = 1.5
-        args.public_boost = 1.25
-        args.private_penalty = 0.45
-
-        console.print("[cyan]Retrieving context...[/cyan]")
-        
-        neo4j_config = build_neo4j_config(args)
-        embedding_config = build_embedding_config(args, query_mode=True)
-        retrieval_config = RetrievalConfig(
-            graph_id=args.graph_id,
-            top_k=args.top_k,
-            keyword_k=args.keyword_k,
-            vector_k=args.vector_k,
-            hops=args.hops,
-            route_top_k=args.route_top_k,
-            context_max_chars=args.context_max_chars,
-            max_entities=args.max_entities,
-            class_boost=args.class_boost,
-            public_boost=args.public_boost,
-            private_penalty=args.private_penalty,
+        # Mock an argparse namespace to reuse existing functions
+        args = argparse.Namespace(
+            uri=uri,
+            username=username,
+            password=password,
+            database=database,
+            provider=os.getenv("EMBEDDING_PROVIDER", "hash"),
+            model=os.getenv("EMBEDDING_MODEL", "hash-embedding-v1"),
+            dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "256")),
+            similarity="cosine",
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            gemini_api_key=os.getenv("GEMINI_API_KEY"),
+            gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
+            gemini_task_type=os.getenv("GEMINI_TASK_TYPE", "RETRIEVAL_DOCUMENT"),
+            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            ollama_truncate=True,
         )
-        retriever = Neo4jGraphRetriever(neo4j_config, embedding_config)
-        try:
-            result = retriever.retrieve(args.query, retrieval_config)
-            lines = [f"**Graph:** `{result.graph_id}`"]
-            if result.routed_graphs:
-                lines.append("**Routed graphs:** " + ", ".join(f"`{g}`" for g in result.routed_graphs))
-            lines.extend(["", "### Context", "", result.compressed_context])
-            md = Markdown("\n".join(lines))
-            console.print(Panel(md, title="Retrieval Results", border_style="green"))
-        except Exception as e:
-            console.print(f"[bold red]Error during retrieval: {e}[/bold red]")
-        finally:
-            retriever.close()
 
-    elif action == "Agentic Chat (Decomposition + Synthesis)":
-        query = questionary.text("Enter your complex technical query:").ask()
-        if not query:
-            return
-        
-        console.print("[cyan]Running Agentic Workflow (this may involve several LLM calls)...[/cyan]")
-        from .agent_workflow import build_agent_graph
-        try:
-            app = build_agent_graph()
-            result = app.invoke({
-                "query": query,
-                "sub_query_results": [],
-                "final_answer": ""
-            })
-            console.print("\n" + "="*40)
-            console.print("[bold green]FINAL AGENT ANSWER[/bold green]")
-            console.print("="*40)
-            console.print(result.get("final_answer", "No answer generated."))
-        except Exception as e:
-            console.print(f"[bold red]Error during agent execution: {e}[/bold red]")
+        if action == "Ingest a local repository":
+            from .config_ui import select_installed_package_interactive
+            path = select_installed_package_interactive()
+            if not path:
+                continue
+            args.path = path
+
+            args.snapshot_output = None
+            args.skip_embed = False
+            args.batch_size = 32
+            args.batch_delay_seconds = None
+            args.max_text_length = 12000
+            args.skip_modules = False
+            args.skip_classes = False
+            args.skip_functions = False
+            args.skip_examples = False
+            args.embedding_schema_version = EMBEDDING_SCHEMA_VERSION
+
+            console.print("[cyan]Ingesting repository (this may take a while)...[/cyan]")
+            try:
+                run_ingest(args)
+                console.print("[bold green]Ingestion complete![/bold green]")
+            except Exception as e:
+                console.print(f"[bold red]Error during ingestion: {e}[/bold red]")
+
+        elif action == "Search (Retrieve) from Graph Hub":
+            graphs = get_available_graphs(uri, username, password, database)
+            choices = ["All"] + graphs if graphs else ["All"]
+            
+            graph_id = questionary.select(
+                "Which library to search?",
+                choices=choices
+            ).ask()
+            if not graph_id:
+                continue
+            args.graph_id = None if graph_id == "All" else graph_id
+
+            query = questionary.text("Search query:").ask()
+            if not query:
+                continue
+            args.query = query
+
+            args.gemini_task_type = os.getenv("GEMINI_QUERY_TASK_TYPE", "RETRIEVAL_QUERY")
+            args.top_k = 10
+            args.max_entities = 10
+            args.keyword_k = 8
+            args.vector_k = 8
+            args.hops = 2
+            args.route_top_k = 3
+            args.context_max_chars = 12000
+            args.class_boost = 1.5
+            args.public_boost = 1.25
+            args.private_penalty = 0.45
+
+            console.print("[cyan]Retrieving context...[/cyan]")
+            
+            neo4j_config = build_neo4j_config(args)
+            embedding_config = build_embedding_config(args, query_mode=True)
+            retrieval_config = RetrievalConfig(
+                graph_id=args.graph_id,
+                top_k=args.top_k,
+                keyword_k=args.keyword_k,
+                vector_k=args.vector_k,
+                hops=args.hops,
+                route_top_k=args.route_top_k,
+                context_max_chars=args.context_max_chars,
+                max_entities=args.max_entities,
+                class_boost=args.class_boost,
+                public_boost=args.public_boost,
+                private_penalty=args.private_penalty,
+            )
+            retriever = Neo4jGraphRetriever(neo4j_config, embedding_config)
+            try:
+                result = retriever.retrieve(args.query, retrieval_config)
+                lines = [f"**Graph:** `{result.graph_id}`"]
+                if result.routed_graphs:
+                    lines.append("**Routed graphs:** " + ", ".join(f"`{g}`" for g in result.routed_graphs))
+                lines.extend(["", "### Context", "", result.compressed_context])
+                md = Markdown("\n".join(lines))
+                console.print(Panel(md, title="Retrieval Results", border_style="green"))
+            except Exception as e:
+                console.print(f"[bold red]Error during retrieval: {e}[/bold red]")
+            finally:
+                retriever.close()
+
+        elif action == "Agentic Chat (Decomposition + Synthesis)":
+            query = questionary.text("Enter your complex technical query:").ask()
+            if not query:
+                continue
+            
+            console.print("[cyan]Running Agentic Workflow (this may involve several LLM calls)...[/cyan]")
+            from .agent_workflow import build_agent_graph
+            try:
+                app = build_agent_graph()
+                result = app.invoke({
+                    "query": query,
+                    "sub_query_results": [],
+                    "final_answer": ""
+                })
+                console.print("\n" + "="*40)
+                console.print("[bold green]FINAL AGENT ANSWER[/bold green]")
+                console.print("="*40)
+                console.print(result.get("final_answer", "No answer generated."))
+            except Exception as e:
+                console.print(f"[bold red]Error during agent execution: {e}[/bold red]")
+
+        console.print("\n[cyan]Press Enter to return to main menu...[/cyan]")
+        input()
+
 
 
 def main() -> None:
