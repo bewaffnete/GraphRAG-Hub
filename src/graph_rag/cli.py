@@ -116,9 +116,11 @@ def run_parse(args: argparse.Namespace) -> None:
 
 
 def run_load(args: argparse.Namespace) -> None:
+    from .query_decomposition import register_graph_in_config
     snapshot = load_snapshot_from_args(args)
     result = load_snapshot_to_neo4j(snapshot, args)
     print_load_result(result, args.database)
+    register_graph_in_config(snapshot.metadata.name, snapshot.metadata.version or "unversioned")
 
 
 def run_embed(args: argparse.Namespace) -> None:
@@ -128,11 +130,15 @@ def run_embed(args: argparse.Namespace) -> None:
 
 
 def run_ingest(args: argparse.Namespace) -> None:
+    from .query_decomposition import register_graph_in_config
     snapshot = parse_python_library(Path(args.path))
     if args.snapshot_output:
         Path(args.snapshot_output).write_text(snapshot.to_json(), encoding="utf-8")
     load_result = load_snapshot_to_neo4j(snapshot, args)
     print_load_result(load_result, args.database)
+    
+    register_graph_in_config(snapshot.metadata.name, snapshot.metadata.version or "unversioned")
+
     if args.skip_embed:
         return
     embed_result = embed_graph(load_result["graph_id"], args)

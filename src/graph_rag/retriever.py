@@ -210,16 +210,23 @@ class Neo4jGraphRetriever:
     def retrieve(self, query: str, config: RetrievalConfig) -> RetrievalResult:
         with self.driver.session(database=self.neo4j_config.database) as session:
             routes = [] if config.graph_id else self.route_graphs(session, query, config)
-            graph_id = config.graph_id or (routes[0].graph_id if routes else None)
+            
+            # If graph_id is explicitly provided, use it.
+            # If not, try to route. 
+            # If routing fails, we now fall back to searching all graphs (graph_id=None).
+            graph_id = config.graph_id
+            if not graph_id and routes:
+                graph_id = routes[0].graph_id
+
             if not graph_id:
-                raise RuntimeError("No matching graph found for retrieval.")
+                print(f"[Retriever] No specific graph_id found for query. Searching across all graphs.")
 
             query_vector = self.provider.embed([query])[0]
             seeds = self._hybrid_search(session, graph_id, query, query_vector, config)
             subgraph = self._expand_subgraph(session, graph_id, seeds[: config.max_entities], config.hops)
             result_nodes = select_context_nodes(seeds, subgraph["nodes"], config.max_entities)
             compressed_context = compress_subgraph_context(
-                graph_id,
+                graph_id or "all_graphs",
                 query,
                 seeds,
                 result_nodes,
@@ -229,7 +236,7 @@ class Neo4jGraphRetriever:
             )
             return RetrievalResult(
                 query=query,
-                graph_id=graph_id,
+                graph_id=graph_id or "all_graphs",
                 routed_graphs=[route.graph_id for route in routes],
                 seeds=seeds,
                 nodes=result_nodes,
@@ -260,7 +267,7 @@ class Neo4jGraphRetriever:
         )
         return [dict(record) for record in records]
 
-    def _hybrid_search(self, session, graph_id: str, query: str, query_vector: list[float], config: RetrievalConfig) -> list[RetrievedNode]:
+    def _hybrid_search(self, session, graph_id: str | None, query: str, query_vector: list[float], config: RetrievalConfig) -> list[RetrievedNode]:
         vector_hits = session.execute_read(
             self._vector_search_tx,
             graph_id,
@@ -332,7 +339,7 @@ class Neo4jGraphRetriever:
         return ranked[: config.top_k]
 
     @staticmethod
-    def _vector_search_tx(tx, graph_id: str, query_vector: list[float], top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
+    def _vector_search_tx(tx, graph_id: str | None, query_vector: list[float], top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
         index_names = {
             "Module": "module_embedding_vector",
             "Class": "class_embedding_vector",
@@ -341,6 +348,7 @@ class Neo4jGraphRetriever:
         }
         available_indexes = get_available_index_names(tx)
         hits: list[RetrievedNode] = []
+        prefix = f"{graph_id}:" if graph_id else ""
         for label in include_labels:
             index_name = index_names.get(label)
             if not index_name or index_name not in available_indexes:
@@ -359,7 +367,7 @@ class Neo4jGraphRetriever:
                 """,
                 limit=top_k,
                 embedding=query_vector,
-                prefix=f"{graph_id}:",
+                prefix=prefix,
             )
             hits.extend(
                 RetrievedNode(
@@ -374,8 +382,9 @@ class Neo4jGraphRetriever:
         return _dedupe_hits(hits, top_k)
 
     @staticmethod
-    def _fallback_search_tx(tx, graph_id: str, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
+    def _fallback_search_tx(tx, graph_id: str | None, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
         labels = list(include_labels)
+        prefix = f"{graph_id}:" if graph_id else ""
         records = tx.run(
             """
             MATCH (node)
@@ -395,7 +404,7 @@ class Neo4jGraphRetriever:
             LIMIT $limit
             """,
             labels=labels,
-            prefix=f"{graph_id}:",
+            prefix=prefix,
             needle=query.lower(),
             limit=top_k * max(len(labels), 1),
         )
@@ -414,7 +423,7 @@ class Neo4jGraphRetriever:
         )
 
     @staticmethod
-    def _keyword_search_tx(tx, graph_id: str, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
+    def _keyword_search_tx(tx, graph_id: str | None, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
         index_names = {
             "Module": "module_content_fulltext",
             "Class": "class_content_fulltext",
@@ -423,6 +432,7 @@ class Neo4jGraphRetriever:
         }
         available_indexes = get_available_index_names(tx)
         hits: list[RetrievedNode] = []
+        prefix = f"{graph_id}:" if graph_id else ""
         for label in include_labels:
             index_name = index_names.get(label)
             if not index_name or index_name not in available_indexes:
@@ -441,7 +451,7 @@ class Neo4jGraphRetriever:
                 """,
                 search_query=query,
                 limit=top_k,
-                prefix=f"{graph_id}:",
+                prefix=prefix,
             )
             hits.extend(
                 RetrievedNode(
@@ -455,7 +465,7 @@ class Neo4jGraphRetriever:
             )
         return _dedupe_hits(hits, top_k)
 
-    def _expand_subgraph(self, session, graph_id: str, seeds: list[RetrievedNode], hops: int) -> dict[str, list]:
+    def _expand_subgraph(self, session, graph_id: str | None, seeds: list[RetrievedNode], hops: int) -> dict[str, list]:
         if not seeds:
             return {"nodes": [], "edges": []}
         seed_ids = [seed.graph_id for seed in seeds]
@@ -496,8 +506,9 @@ class Neo4jGraphRetriever:
         return {"nodes": sorted_nodes, "edges": sorted_edges}
 
     @staticmethod
-    def _expand_subgraph_tx(tx, graph_id: str, seed_ids: list[str], hops: int) -> list[dict[str, Any]]:
+    def _expand_subgraph_tx(tx, graph_id: str | None, seed_ids: list[str], hops: int) -> list[dict[str, Any]]:
         path_pattern = "*1..1" if hops == 1 else "*1..2"
+        prefix = f"{graph_id}:" if graph_id else ""
         records = tx.run(
             f"""
             UNWIND $seed_ids AS seed_id
@@ -518,7 +529,7 @@ class Neo4jGraphRetriever:
                    properties(rel) AS rel_properties
             """,
             seed_ids=seed_ids,
-            prefix=f"{graph_id}:",
+            prefix=prefix,
         )
         return [dict(record) for record in records]
 

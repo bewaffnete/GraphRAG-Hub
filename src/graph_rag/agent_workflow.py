@@ -51,8 +51,6 @@ def discover_candidates_node(sub_query: SubQuery):
             with retriever.driver.session(database=retriever.neo4j_config.database) as session:
                 routes = [] if config.graph_id else retriever.route_graphs(session, sub_query.query, config)
                 graph_id = config.graph_id or (routes[0].graph_id if routes else None)
-                if not graph_id:
-                    continue
                 
                 query_vector = retriever.provider.embed([sub_query.query])[0]
                 seeds = retriever._hybrid_search(session, graph_id, sub_query.query, query_vector, config)
@@ -76,17 +74,25 @@ def filter_candidates_node(state: AgentState):
     
     candidates_str = json.dumps(state["candidates"], indent=2, ensure_ascii=False)
     
-    prompt = f"""You are an expert technical filter. Given a user query and a list of candidate code entities (Classes, Methods, Modules), 
-identify which entities are TRULY relevant to answering the query.
+    prompt = f"""You are an expert technical auditor tasked with selecting the most relevant code entities for a RAG system.
+Given a user query and a list of candidate entities (Classes, Methods, Modules), identify the ones that are CRITICAL or highly supportive for answering the query.
+
+### SELECTION CRITERIA:
+1. **Direct Relevance**: Entities that directly address the user's question.
+2. **Structural Context**: Classes or modules that house the primary logic.
+3. **Dependency Context**: Methods or examples that illustrate how to use the primary entities.
 
 User Query: {state['query']}
 
-Candidates:
+### Candidates:
 {candidates_str}
 
-Return a JSON object with a list of 'selected_ids'.
-Example: {{"selected_ids": ["id1", "id2"]}}
-Only select entities that will directly help in providing a code-level answer or architectural understanding."""
+### Instruction:
+Return a JSON object with a key "selected_ids" containing a list of `graph_id` strings. Be inclusive if multiple entities are needed for a complete technical explanation.
+Only select entities that will directly help in providing a code-level answer or architectural understanding.
+
+Example:
+{{"selected_ids": ["id1", "id2"]}}"""
 
     response = llm.invoke([
         SystemMessage(content="You return strictly JSON with 'selected_ids'."),
@@ -94,10 +100,20 @@ Only select entities that will directly help in providing a code-level answer or
     ])
     
     try:
-        # Depending on the LLM, response.content might need cleaning or parsing
-        data = json.loads(response.content)
+        # Clean markdown wrappers if present
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        elif content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        
+        data = json.loads(content)
         selected_ids = data.get("selected_ids", [])
-    except:
+    except Exception as e:
+        print(f"[Agent] JSON parse error: {e}. Raw content: {response.content}")
         selected_ids = []
         
     print(f"\n[Agent] Selected {len(selected_ids)} nodes out of {len(state['candidates'])} candidates.")
@@ -143,15 +159,28 @@ def synthesize_answer_node(state: AgentState):
     
     context = "\n\n".join(state["retrieved_contexts"])
     
-    prompt = f"""You are a helpful assistant specialized in software libraries and repositories.
-Based on the following retrieved implementation details, answer the user's original query.
+    print("\n" + "="*50)
+    print("DEBUG: DATA PROVIDED TO MODEL FOR AUGMENTATION")
+    print("="*50)
+    print(context)
+    print("="*50 + "\n")
+    
+    prompt = f"""You are an expert technical assistant specialized in software architecture and repository analysis.
+Your task is to answer the user's query STRICTLY based on the provided technical context retrieved from a Knowledge Graph.
+
+### CONSTRAINTS & MANDATES:
+1. **STRICT ADHERENCE**: You must prioritize and use the information provided in the "Retrieved Context" section. Do not ignore relevant technical details.
+2. **TECHNICAL ACCURACY**: Use exact class names, function signatures, and implementation details as they appear in the context.
+3. **CODE EXAMPLES**: Include code snippets if they are present in the context or can be accurately derived from the signatures provided.
+4. **GROUNDING**: If the provided context is insufficient to fully answer the query, provide the best possible answer based ONLY on what is available, and explicitly state what specific information was missing from the retrieval.
+5. **NO HALLUCINATION**: Do not invent functions, classes, or behaviors that are not supported by the retrieved data.
 
 User Query: {state['query']}
 
-Retrieved Context:
+### Retrieved Context:
 {context}
 
-Provide a clear, technical, and accurate answer with code examples if relevant."""
+### Final Technical Answer:"""
 
     response = llm.invoke([HumanMessage(content=prompt)])
     return {"final_answer": response.content}

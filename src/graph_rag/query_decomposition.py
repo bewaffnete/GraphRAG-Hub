@@ -23,7 +23,36 @@ def load_available_graphs(path: str = "available_graphs.yaml") -> List[dict]:
         return []
     with open(path, 'r') as f:
         data = yaml.safe_load(f)
+    if not data or 'graphs' not in data:
+        return []
     return data.get('graphs', [])
+
+def register_graph_in_config(name: str, version: str, path: str = "available_graphs.yaml"):
+    """Registers or updates a graph in the available_graphs.yaml file."""
+    graphs = load_available_graphs(path)
+    
+    found = False
+    for g in graphs:
+        if g['name'] == name:
+            if version not in g.get('versions', []):
+                g.setdefault('versions', []).append(version)
+            g['latest'] = version
+            g['status'] = 'active'
+            found = True
+            break
+            
+    if not found:
+        graphs.append({
+            'name': name,
+            'versions': [version],
+            'latest': version,
+            'status': 'active'
+        })
+        
+    with open(path, 'w') as f:
+        yaml.safe_dump({'graphs': graphs}, f, sort_keys=False)
+    
+    print(f"[Config] Registered {name} (version {version}) in {path}")
 
 class QueryDecomposer:
     def __init__(self):
