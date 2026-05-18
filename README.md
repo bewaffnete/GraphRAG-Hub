@@ -1,121 +1,210 @@
-# GraphRAG-Hub
+# 🕸️ GraphRAG-Hub
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Neo4j](https://img.shields.io/badge/database-Neo4j-green.svg)](https://neo4j.com/)
 [![LangChain](https://img.shields.io/badge/framework-LangChain-orange.svg)](https://langchain.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**GraphRAG-Hub** is a high-performance pipeline designed to transform Python source repositories into a rich, queryable **Graph Knowledge Hub**. Unlike traditional RAG systems that treat code as flat text, GraphRAG-Hub understands the structural and semantic relationships of your codebase, enabling precise retrieval and agentic reasoning.
+> **Your AI coding assistant is hallucinating the API.** GraphRAG-Hub fixes that.
 
 ---
 
-## ⚡️Key Features
+## The Problem
 
-*   **Deep AST Analysis**: Extracts more than just text. It captures class hierarchies, function signatures, parameters, return types, and exceptions.
-*   **AST Enrichment**:
-    *   **Logic Skeleton**: Strips away boilerplate and noise, keeping only the control flow (if/else, loops, calls) for better LLM understanding.
-    *   **Complexity Metrics**: Computes cyclomatic complexity, nesting depth, and branch counts.
-    *   **Call Graphs**: Maps internal function calls and constant usage.
-*   **Multi-Source Ingestion**: Parse local directories or entire libraries into portable JSON snapshots.
-*   **Hybrid Search**: Combines full-text search, vector embeddings (OpenAI, Gemini, Ollama), BM25 and graph traversal (2-hop neighborhood).
-*   **Agentic Workflow**: Powered by **LangGraph**, it decomposes complex technical queries into sub-queries, discovers relevant nodes, and synthesizes answers with full implementation context.
-*   **Interactive CLI**: A beautiful, `rich`-powered CLI for seamless ingestion and exploration.
+Every AI coding assistant has a knowledge cutoff. Ask Copilot or Claude to write code using `pandas 2.x`, `LangChain 0.3`, or any library released in the last year — and you'll get confident, detailed, **wrong** answers.
+
+They're not lying. They just don't know what changed.
+
+**The standard fix — RAG over documentation — is too shallow.** Markdown docs miss deprecated methods, type signatures, exception chains, and call graphs. You get text. You need structure.
 
 ---
 
-## The Knowledge Graph
+## The Solution
 
-GraphRAG-Hub builds a multi-layered graph in **Neo4j** with the following schema:
+GraphRAG-Hub parses any Python library directly from source using **AST analysis** and builds a **queryable knowledge graph** in Neo4j — not from docs, but from the actual code.
 
--   **Nodes**: `Library`, `Module`, `Class`, `Function`, `Parameter`, `Example`, `Type`, `Exception`.
--   **Relationships**: 
-    -   `(Library)-[:CONTAINS]->(Module)`
-    -   `(Module)-[:CONTAINS]->(Class|Function)`
-    -   `(Class)-[:INHERITS]->(Class)`
-    -   `(Function)-[:HAS_PARAM]->(Parameter)`
-    -   `(Function)-[:RETURNS]->(Type)`
-    -   `(Function)-[:RAISES]->(Exception)`
-    -   `(Any)-[:HAS_EXAMPLE]->(Example)`
+```
+pandas 2.2.0  ──AST──▶  Graph  ──Hybrid Search──▶  LangGraph Agent  ──▶  Accurate Answer
+```
+
+Your AI assistant now knows **exactly** what exists, what's deprecated, what raises what exception, and how everything connects — for any library version you point it at.
 
 ---
 
-## 🚀 Quick Start
+## Why AST beats documentation RAG
 
-### 1. Installation
+| | Docs RAG | **GraphRAG-Hub** |
+|---|---|---|
+| Source of truth | Markdown text | Actual source code |
+| Deprecated methods | Often undocumented | Extracted from AST |
+| Type signatures | Partial / outdated | Complete, deterministic |
+| Call graphs | ❌ | ✅ |
+| Complexity metrics | ❌ | ✅ (cyclomatic, nesting) |
+| Multi-hop reasoning | ❌ | ✅ 2-hop graph traversal |
+| Indexing speed | Minutes | **Seconds** |
+
+> Research confirms: AST-derived graphs cover ~90% of code vs 64–69% for LLM-extracted approaches, and build in seconds vs hundreds of seconds. ([arxiv:2601.08773](https://arxiv.org/abs/2601.08773))
+
+---
+
+## What Gets Extracted
+
+GraphRAG-Hub builds a rich, multi-layered graph from your library:
+
+```
+Library
+ └── Module
+      ├── Class  ──[:INHERITS]──▶  Class
+      │    └── Function  ──[:HAS_PARAM]──▶  Parameter
+      │                  ──[:RETURNS]──▶    Type
+      │                  ──[:RAISES]──▶     Exception
+      │                  ──[:CALLS]──▶      Function
+      └── Function
+           └── Example
+```
+
+Beyond structure, each node is enriched with:
+- **Logic Skeleton** — control flow stripped of boilerplate, optimized for LLM context
+- **Complexity Metrics** — cyclomatic complexity, nesting depth, branch counts
+- **Call Graph** — who calls what, which constants are used
+
+---
+
+## ⚡ Quick Start
+
+### 1. Prerequisites
+
+- Neo4j running locally (or Docker: `docker run -p7474:7474 -p7687:7687 neo4j`)
+- Python 3.11+
+
+### 2. Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-repo/graph-rag.git
-cd graph-rag
-
-# Install with CLI dependencies
+git clone https://github.com/bewaffnete/GraphRAG-Hub.git
+cd GraphRAG-Hub
 pip install -e '.[all]'
 ```
 
-### 2. Configuration
+### 3. Configure
 
-Create a `.env` file with your credentials:
+```bash
+cp .env.example .env
+# Fill in your Neo4j credentials and embedding provider
+```
 
 ```env
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password
 
-# Choose your embedding provider
-EMBEDDING_PROVIDER=openai # or gemini, ollama
+EMBEDDING_PROVIDER=openai   # or: gemini, ollama
 OPENAI_API_KEY=sk-...
-# GEMINI_API_KEY=...
 ```
 
-### 3. Interactive Ingestion
-
-Simply run the CLI without arguments to enter interactive mode:
+### 4. Ingest a library
 
 ```bash
+# Point at any Python library on your machine
+graph-rag ingest ./path/to/pandas --provider openai
+
+# Or use interactive mode
 graph-rag
 ```
 
----
+### 5. Ask questions
 
-## 🛠️ Usage (CLI)
-
-### Ingest a Repository
-Parse, load into Neo4j, and generate embeddings in one go:
 ```bash
-graph-rag ingest ./path/to/your/library --provider openai
-```
+# Precise retrieval
+graph-rag retrieve "What does DataFrame.merge raise when keys don't match?" --graph-id pandas:2.2.0
 
-### Retrieve Context
-Search for specific implementation details:
-```bash
-graph-rag retrieve "How is the embedding indexing handled?" --graph-id my-lib:0.1.0
-```
-
-### Agentic Chat
-Run a complex query through the LangGraph agent:
-```bash
-graph-rag chat "Explain the relationship between the parser and the neo4j loader"
+# Agentic reasoning across the graph
+graph-rag chat "Explain how the GroupBy pipeline connects to aggregation functions"
 ```
 
 ---
 
-## 🏗️ Architecture
+## Hybrid Search: Four Signals, One Answer
 
-1.  **Parser**: Uses Python's `ast` module to build a `LibrarySnapshot`.
-2.  **Enricher**: Enhances nodes with logic skeletons and complexity metrics.
-3.  **Loader**: Upserts the snapshot into Neo4j, ensuring idempotency and maintaining versioned `graph_id`s.
-4.  **Indexer**: Generates vector embeddings for docstrings and logic skeletons.
-5.  **Retriever**: Performs hybrid search + graph traversal to build a "compressed context" for the LLM.
-6.  **Agent**: A LangGraph state machine orchestrating the multi-step retrieval and synthesis process.
+When you ask a question, GraphRAG-Hub doesn't just run a similarity search. It combines:
+
+1. **Full-text search** — exact keyword matches across names and docstrings
+2. **Vector embeddings** — semantic similarity (OpenAI / Gemini / Ollama)
+3. **BM25** — probabilistic relevance ranking
+4. **2-hop graph traversal** — follows relationships to surface connected context
+
+The **LangGraph agent** then decomposes your query into sub-questions, retrieves context from each signal, and synthesizes a grounded answer.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     CLI (Rich)                      │
+└───────────────────────┬─────────────────────────────┘
+                        │
+              ┌─────────▼──────────┐
+              │      Parser        │  Python ast module
+              │  LibrarySnapshot   │  → classes, functions,
+              └─────────┬──────────┘    params, types, exceptions
+                        │
+              ┌─────────▼──────────┐
+              │      Enricher      │  Logic skeletons
+              │                    │  Complexity metrics
+              └─────────┬──────────┘  Call graphs
+                        │
+              ┌─────────▼──────────┐
+              │  Neo4j Loader      │  Idempotent upsert
+              │  (versioned)       │  graph_id = lib:version
+              └─────────┬──────────┘
+                        │
+              ┌─────────▼──────────┐
+              │     Indexer        │  Vector embeddings
+              │                    │  for docstrings +
+              └─────────┬──────────┘  logic skeletons
+                        │
+              ┌─────────▼──────────┐
+              │  Hybrid Retriever  │  FTS + Vector + BM25
+              │                    │  + 2-hop traversal
+              └─────────┬──────────┘
+                        │
+              ┌─────────▼──────────┐
+              │  LangGraph Agent   │  Query decomposition
+              │                    │  Multi-step retrieval
+              └────────────────────┘  Answer synthesis
+```
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
--   **Language**: [Python 3.11+](https://www.python.org/)
--   **Graph DB**: [Neo4j](https://neo4j.com/)
--   **Orchestration**: [LangChain](https://github.com/langchain-ai/langchain) & [LangGraph](https://github.com/langchain-ai/langgraph)
--   **LLMs**: OpenAI, Google Gemini, Ollama (Local)
--   **CLI**: [Rich](https://github.com/Textualize/rich), [Questionary](https://github.com/tmbo/questionary)
+| Layer | Technology |
+|---|---|
+| Graph DB | [Neo4j](https://neo4j.com/) |
+| Agent Orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) |
+| LLM Providers | OpenAI · Google Gemini · Ollama |
+| Embeddings | OpenAI · Gemini · Ollama |
+| CLI | [Rich](https://github.com/Textualize/rich) · [Questionary](https://github.com/tmbo/questionary) |
+| Language | Python 3.11+ |
 
 ---
+
+## Roadmap
+
+- [ ] MCP server — plug GraphRAG-Hub into Claude Code, Cursor, Copilot
+- [ ] Multi-language support via Tree-sitter (TypeScript, Java, Go)
+- [ ] Incremental updates via `git diff` — no full re-index on every change
+- [ ] Cross-library graph — trace dependencies between indexed libraries
+- [ ] GitHub Actions integration for CI-based graph updates
+
+---
+
+## Contributing
+
+Issues and PRs are welcome. If you're indexing a library and hit a parsing edge case, open an issue with the library name and version.
+
+---
+
+## License
+
+MIT © [bewaffnete](https://github.com/bewaffnete)
