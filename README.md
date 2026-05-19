@@ -123,6 +123,29 @@ graph-rag chat "Explain how the GroupBy pipeline connects to aggregation functio
 
 ---
 
+### Agent Integration (MCP Server)
+
+GraphRAG-Hub includes a Model Context Protocol (MCP) server so your IDE agents (Claude Code, Cursor, Copilot) can query the knowledge graph directly.
+
+**Claude Code / Cursor Configuration (`~/.claude/claude_desktop_config.json` or `.cursor/mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "graphrag-hub": {
+      "command": "graph-rag-mcp",
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "your_password",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+---
+
 ## Hybrid Search: Four Signals, One Answer
 
 When you ask a question, GraphRAG-Hub doesn't just run a similarity search. It combines:
