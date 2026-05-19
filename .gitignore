@@ -157,5 +157,6 @@ available_graphs.yaml
 .DS_Store
 TODO.md
 mcp_testing/
+AGENT.md
 # Logs
 *.log
