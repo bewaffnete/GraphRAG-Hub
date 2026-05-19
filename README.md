@@ -70,75 +70,54 @@ Beyond structure, each node is enriched with:
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start (Docker)
 
-### 1. Prerequisites
+The fastest way to get started is using Docker Compose. This spins up Neo4j and the GraphRAG application.
 
-- Neo4j running locally (or Docker: `docker run -p7474:7474 -p7687:7687 neo4j`)
-- Python 3.11+
-
-### 2. Install
-
+### 1. Build and Run
 ```bash
 git clone https://github.com/bewaffnete/GraphRAG-Hub.git
 cd GraphRAG-Hub
-pip install -e '.[all]'
-```
-
-### 3. Configure
-
-```bash
 cp .env.example .env
-# Fill in your Neo4j credentials and embedding provider
+# Optional: fill in OpenAI/Gemini keys if not using Ollama
+docker compose up -d
 ```
 
-```env
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your_password
-
-EMBEDDING_PROVIDER=openai   # or: gemini, ollama
-OPENAI_API_KEY=sk-...
-```
-
-### 4. Ingest a library
-
+### 2. Ingest a library
+To index a project, place it in the `repos/` folder and run the ingest command:
 ```bash
-# Point at any Python library on your machine
-graph-rag ingest ./path/to/pandas --provider openai
-
-# Or use interactive mode
-graph-rag
+# Example: Indexing a project located at ./repos/my-cool-lib
+docker compose exec graph-rag-app graph-rag ingest /repos/my-cool-lib
 ```
 
-### 5. Ask questions
-
+### 3. Ask questions via CLI
 ```bash
 # Precise retrieval
-graph-rag retrieve "What does DataFrame.merge raise when keys don't match?" --graph-id pandas:2.2.0
+docker compose exec graph-rag-app graph-rag retrieve "How does the auth flow work?"
 
-# Agentic reasoning across the graph
-graph-rag chat "Explain how the GroupBy pipeline connects to aggregation functions"
+# Agentic chat
+docker compose exec graph-rag-app graph-rag chat "Explain the relationship between Module and Class"
 ```
 
 ---
 
+## 🛠️ Advanced Configuration
+
+### Ollama Setup (Local vs Docker)
+By default, the app looks for Ollama on your host (Mac) for best performance.
+- **Local Ollama (Mac):** Just ensure Ollama is running and `.env` has `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
+- **Docker Ollama:** Start with `--profile with-ollama` and set `OLLAMA_BASE_URL=http://ollama:11434`.
+
 ### Agent Integration (MCP Server)
+GraphRAG-Hub includes an MCP server so your IDE (Claude Code, Cursor) can query the graph.
 
-GraphRAG-Hub includes a Model Context Protocol (MCP) server so your IDE agents (Claude Code, Cursor, Copilot) can query the knowledge graph directly.
-
-**Claude Code / Cursor Configuration (`~/.claude/claude_desktop_config.json` or `.cursor/mcp.json`):**
+**MCP Configuration:**
 ```json
 {
   "mcpServers": {
     "graphrag-hub": {
-      "command": "graph-rag-mcp",
-      "env": {
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USERNAME": "neo4j",
-        "NEO4J_PASSWORD": "your_password",
-        "OPENAI_API_KEY": "sk-..."
-      }
+      "command": "docker",
+      "args": ["exec", "-i", "graphrag-app", "graph-rag-mcp"]
     }
   }
 }

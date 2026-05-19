@@ -2,7 +2,7 @@
 name = "graph-rag"
 version = "0.1.0"
 description = "Pipeline utilities for building a Graph Knowledge Hub from source repositories."
-readme = "ARCHITECTURE.md"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "langchain>=0.1.0",
