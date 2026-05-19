@@ -1,3 +1,5 @@
+"""Model Context Protocol (MCP) server implementation for Graph RAG."""
+
 import asyncio
 import json
 from mcp.server import Server
@@ -11,6 +13,7 @@ server = Server("graphrag-hub")
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
+    """List available MCP tools for graph retrieval and chat."""
     return [
         types.Tool(
             name="graphrag_retrieve",
@@ -31,6 +34,7 @@ async def list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    """Handle MCP tool execution requests."""
     if name == "graphrag_retrieve":
         input_data = RetrieveInput(**arguments)
         result = await execute_retrieve(input_data)
@@ -50,7 +54,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent | type
         raise ValueError(f"Unknown tool: {name}")
 
 async def async_run():
-    # Use stdio_server to communicate with the client
+    """Run the MCP server using stdio transport."""
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

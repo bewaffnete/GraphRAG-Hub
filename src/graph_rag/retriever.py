@@ -18,6 +18,29 @@ except ImportError:  # pragma: no cover
 
 @dataclass
 class RetrievalConfig:
+    """
+    Configuration for the graph retrieval process.
+
+    Attributes:
+        graph_id (str | None): Explicit graph ID to search. If None, routes automatically.
+        top_k (int): Number of seed nodes to retrieve.
+        keyword_k (int): Number of nodes from keyword search.
+        vector_k (int): Number of nodes from vector search.
+        hops (int): Graph traversal depth from seeds.
+        context_max_chars (int): Limit for the final compressed context string.
+        max_entities (int): Maximum number of unique nodes in the context.
+        vector_weight (float): Weight for vector similarity scores.
+        keyword_weight (float): Weight for fulltext search scores.
+        bm25_weight (float): Weight for BM25 scores.
+        exact_match_boost (float): Multiplier for exact name matches.
+        class_boost (float): Multiplier for Class nodes.
+        public_boost (float): Multiplier for public members.
+        private_penalty (float): Penalty for private members.
+        method_parent_boost (float): Multiplier for methods when parent class matches query.
+        method_parent_penalty (float): Penalty for methods when class mismatch exists.
+        include_labels (tuple[str, ...]): Node labels to search.
+        route_top_k (int): Number of candidate graphs to consider during routing.
+    """
     graph_id: str | None = None
     top_k: int = 10
     keyword_k: int = 8
@@ -40,6 +63,7 @@ class RetrievalConfig:
 
 @dataclass
 class RetrievedNode:
+    """Represents a node retrieved from the graph with its score and properties."""
     graph_id: str
     labels: list[str]
     name: str | None
@@ -49,6 +73,7 @@ class RetrievedNode:
 
 @dataclass
 class RetrievedEdge:
+    """Represents a relationship between two retrieved nodes."""
     source_graph_id: str
     target_graph_id: str
     type: str
@@ -57,6 +82,18 @@ class RetrievedEdge:
 
 @dataclass
 class RetrievalResult:
+    """
+    The full result of a retrieval operation.
+
+    Attributes:
+        query (str): The original search query.
+        graph_id (str): The primary graph ID used.
+        routed_graphs (list[str]): Candidate graphs identified during routing.
+        seeds (list[RetrievedNode]): Initial high-score nodes.
+        nodes (list[RetrievedNode]): Final set of context nodes.
+        edges (list[RetrievedEdge]): Relationships between context nodes.
+        compressed_context (str): Final formatted context for LLM consumption.
+    """
     query: str
     graph_id: str
     routed_graphs: list[str]
@@ -66,6 +103,7 @@ class RetrievalResult:
     compressed_context: str
 
     def to_json(self, *, indent: int = 2) -> str:
+        """Serialize result to a JSON string."""
         return json.dumps(
             {
                 "query": self.query,
@@ -82,6 +120,7 @@ class RetrievalResult:
 
 @dataclass
 class GraphRoute:
+    """Represents a candidate library/graph discovered during routing."""
     graph_id: str
     score: float
     name: str | None
@@ -90,6 +129,17 @@ class GraphRoute:
 
 @dataclass
 class QueryIntent:
+    """
+    Structural analysis of a user query to improve retrieval ranking.
+
+    Attributes:
+        raw (str): Original query text.
+        tokens (set[str]): Lowercased word tokens.
+        class_names (set[str]): Likely class names (PascalCase).
+        method_names (set[str]): Likely method/function names.
+        asks_usage (bool): Whether query asks for 'how-to' or usage.
+        asks_internals (bool): Whether query asks for internal logic/workings.
+    """
     raw: str
     tokens: set[str]
     class_names: set[str]
@@ -99,6 +149,7 @@ class QueryIntent:
 
     @classmethod
     def from_query(cls, query: str) -> "QueryIntent":
+        """Parse query text into a QueryIntent object."""
         raw_tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", query)
         tokens = {token.lower() for token in raw_tokens}
         class_names = {token for token in raw_tokens if token[:1].isupper()}
@@ -116,6 +167,7 @@ class QueryIntent:
 
 
 def extract_method_names(query: str) -> set[str]:
+    """Identify likely method names in a query using regex patterns."""
     method_names = {match.group(1).lower() for match in re.finditer(r"\.([A-Za-z_][A-Za-z0-9_]*)\b", query)}
     for pattern in (
         r"\bmethod\s+([A-Za-z_][A-Za-z0-9_]*)\b",
@@ -128,7 +180,17 @@ def extract_method_names(query: str) -> set[str]:
 
 
 class BM25Scorer:
+    """A lightweight BM25 implementation for ranking search results."""
+
     def __init__(self, corpus: list[list[str]], k1: float = 1.5, b: float = 0.75):
+        """
+        Initialize the scorer with a corpus.
+
+        Args:
+            corpus (list[list[str]]): List of tokenized documents.
+            k1 (float): BM25 parameter (default 1.5).
+            b (float): BM25 parameter (default 0.75).
+        """
         self.k1 = k1
         self.b = b
         self.corpus_size = len(corpus)
@@ -148,6 +210,7 @@ class BM25Scorer:
             self.idf[word] = math.log(1 + (self.corpus_size - freq + 0.5) / (freq + 0.5))
 
     def get_scores(self, query: list[str]) -> list[float]:
+        """Compute scores for all documents in the corpus for a given query."""
         if self.corpus_size == 0:
             return []
         scores = [0.0] * self.corpus_size
@@ -165,7 +228,24 @@ class BM25Scorer:
 
 
 class Neo4jGraphRetriever:
+    """
+    Retriever for fetching and ranking knowledge from a Neo4j graph.
+
+    Uses a hybrid approach combining:
+    1. Vector search (semantic similarity)
+    2. Fulltext search (keyword matching)
+    3. BM25 ranking (statistical relevance)
+    4. Graph expansion (structural context)
+    """
+
     def __init__(self, neo4j_config: Neo4jConfig, embedding_config: EmbeddingConfig):
+        """
+        Initialize the retriever.
+
+        Args:
+            neo4j_config (Neo4jConfig): Neo4j connection settings.
+            embedding_config (EmbeddingConfig): Embedding provider settings.
+        """
         if GraphDatabase is None:
             raise RuntimeError(
                 "The 'neo4j' package is not installed. Activate the target environment and install it first."
@@ -180,10 +260,11 @@ class Neo4jGraphRetriever:
         self.provider = build_embedding_provider(embedding_config)
 
     def close(self) -> None:
+        """Close the Neo4j driver connection."""
         self.driver.close()
 
     def get_nodes_by_ids(self, graph_ids: list[str]) -> list[RetrievedNode]:
-        """Fetch full node properties for a list of graph_ids."""
+        """Fetch full node properties for a specific list of graph_ids."""
         with self.driver.session(database=self.neo4j_config.database) as session:
             records = session.run(
                 """
@@ -208,12 +289,19 @@ class Neo4jGraphRetriever:
             ]
 
     def retrieve(self, query: str, config: RetrievalConfig) -> RetrievalResult:
+        """
+        Execute a full retrieval operation (route -> search -> expand -> compress).
+
+        Args:
+            query (str): User search query.
+            config (RetrievalConfig): Retrieval parameters and weights.
+
+        Returns:
+            RetrievalResult: Formatted result containing context nodes and text.
+        """
         with self.driver.session(database=self.neo4j_config.database) as session:
             routes = [] if config.graph_id else self.route_graphs(session, query, config)
             
-            # If graph_id is explicitly provided, use it.
-            # If not, try to route. 
-            # If routing fails, we now fall back to searching all graphs (graph_id=None).
             graph_id = config.graph_id
             if not graph_id and routes:
                 graph_id = routes[0].graph_id
@@ -245,11 +333,13 @@ class Neo4jGraphRetriever:
             )
 
     def route_graphs(self, session, query: str, config: RetrievalConfig) -> list[GraphRoute]:
+        """Identify candidate graphs (libraries) for a given query."""
         result = session.execute_read(self._route_graphs_tx, query, config.route_top_k)
         return [GraphRoute(**row) for row in result]
 
     @staticmethod
     def _route_graphs_tx(tx, query: str, top_k: int) -> list[dict[str, Any]]:
+        """Transactional implementation of graph routing."""
         if "library_name_fulltext" not in get_available_index_names(tx):
             return []
         records = tx.run(
@@ -268,6 +358,7 @@ class Neo4jGraphRetriever:
         return [dict(record) for record in records]
 
     def _hybrid_search(self, session, graph_id: str | None, query: str, query_vector: list[float], config: RetrievalConfig) -> list[RetrievedNode]:
+        """Combine results from multiple search strategies."""
         vector_hits = session.execute_read(
             self._vector_search_tx,
             graph_id,
@@ -340,6 +431,7 @@ class Neo4jGraphRetriever:
 
     @staticmethod
     def _vector_search_tx(tx, graph_id: str | None, query_vector: list[float], top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
+        """Perform vector similarity search in Neo4j."""
         index_names = {
             "Module": "module_embedding_vector",
             "Class": "class_embedding_vector",
@@ -383,6 +475,7 @@ class Neo4jGraphRetriever:
 
     @staticmethod
     def _fallback_search_tx(tx, graph_id: str | None, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
+        """Perform simple CONTAINS search as a fallback when indexes are missing/fail."""
         labels = list(include_labels)
         prefix = f"{graph_id}:" if graph_id else ""
         records = tx.run(
@@ -424,6 +517,7 @@ class Neo4jGraphRetriever:
 
     @staticmethod
     def _keyword_search_tx(tx, graph_id: str | None, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
+        """Perform fulltext keyword search in Neo4j."""
         index_names = {
             "Module": "module_content_fulltext",
             "Class": "class_content_fulltext",
@@ -466,6 +560,7 @@ class Neo4jGraphRetriever:
         return _dedupe_hits(hits, top_k)
 
     def _expand_subgraph(self, session, graph_id: str | None, seeds: list[RetrievedNode], hops: int) -> dict[str, list]:
+        """Fetch neighboring nodes and edges for a set of seed nodes."""
         if not seeds:
             return {"nodes": [], "edges": []}
         seed_ids = [seed.graph_id for seed in seeds]
@@ -507,6 +602,7 @@ class Neo4jGraphRetriever:
 
     @staticmethod
     def _expand_subgraph_tx(tx, graph_id: str | None, seed_ids: list[str], hops: int) -> list[dict[str, Any]]:
+        """Transactional implementation of subgraph expansion."""
         path_pattern = "*1..1" if hops == 1 else "*1..2"
         prefix = f"{graph_id}:" if graph_id else ""
         records = tx.run(
@@ -544,6 +640,12 @@ def compress_subgraph_context(
     *,
     max_entities: int,
 ) -> str:
+    """
+    Formulate a concise text context summarizing the retrieved graph subset.
+    
+    The context includes top matches and formatted implementation blocks, 
+    truncated to fit within token/character limits.
+    """
     lines = [
         f"Graph: {graph_id}",
         f"Query: {query}",
@@ -567,6 +669,7 @@ def compress_subgraph_context(
 
 
 def format_implementation_sections(nodes: list[RetrievedNode], *, max_entities: int) -> list[str]:
+    """Sort and format implementation blocks for a list of nodes."""
     sections: list[str] = []
     prioritized = sorted(nodes, key=_node_priority)
     for node in prioritized[:max_entities]:
@@ -578,6 +681,7 @@ def format_implementation_sections(nodes: list[RetrievedNode], *, max_entities: 
 
 
 def select_context_nodes(seeds: list[RetrievedNode], expanded_nodes: list[RetrievedNode], max_entities: int) -> list[RetrievedNode]:
+    """Smartly select nodes to include in context, prioritizing seeds and needed parents."""
     selected: dict[str, RetrievedNode] = {}
     for seed in seeds[:max_entities]:
         selected[seed.graph_id] = seed
@@ -598,6 +702,7 @@ def select_context_nodes(seeds: list[RetrievedNode], expanded_nodes: list[Retrie
 
 
 def format_node_implementation(node: RetrievedNode, label: str) -> list[str]:
+    """Render a single node's properties as a text block."""
     props = node.properties
     title = node.name or node.graph_id
     if label == "Function":
@@ -628,6 +733,7 @@ def format_node_implementation(node: RetrievedNode, label: str) -> list[str]:
 
 
 def render_block(kind: str, title: str, *, signature: str | None, docstring: str | None) -> list[str]:
+    """Helper to render Kind Title, Signature, and Docstring."""
     block = [f"[{kind}] {title}"]
     if signature:
         block.append(signature)
@@ -638,6 +744,7 @@ def render_block(kind: str, title: str, *, signature: str | None, docstring: str
 
 
 def normalize_text_block(value: Any) -> str | None:
+    """Clean and normalize a text block (e.g., docstring)."""
     if value in (None, ""):
         return None
     text = str(value).strip()
@@ -645,6 +752,7 @@ def normalize_text_block(value: Any) -> str | None:
 
 
 def normalize_code_block(value: Any) -> str | None:
+    """Clean and normalize a code block."""
     if value in (None, ""):
         return None
     text = str(value).strip()
@@ -652,6 +760,7 @@ def normalize_code_block(value: Any) -> str | None:
 
 
 def sanitize_node_properties(labels: list[str], properties: dict[str, Any]) -> dict[str, Any]:
+    """Filter node properties to only include keys relevant for retrieval context."""
     label = labels[0] if labels else "Node"
     ast_keys = {
         "logic_skeleton",
@@ -678,6 +787,7 @@ def sanitize_node_properties(labels: list[str], properties: dict[str, Any]) -> d
 
 
 def apply_rerank(node: RetrievedNode, intent: QueryIntent, config: RetrievalConfig) -> RetrievedNode:
+    """Apply heuristic boosts and penalties to a node's score based on query intent."""
     label = node.labels[0] if node.labels else "Node"
     score = node.score
     is_public = bool(node.properties.get("is_public", True))
@@ -720,6 +830,7 @@ def apply_rerank(node: RetrievedNode, intent: QueryIntent, config: RetrievalConf
 
 
 def _public_node_payload(node: RetrievedNode) -> dict[str, Any]:
+    """Format node for public JSON output."""
     return {
         "graph_id": node.graph_id,
         "labels": node.labels,
@@ -730,6 +841,7 @@ def _public_node_payload(node: RetrievedNode) -> dict[str, Any]:
 
 
 def _node_priority(node: RetrievedNode) -> tuple[int, float]:
+    """Compute sorting priority for context nodes (Function > Class > Module > Example)."""
     label = node.labels[0] if node.labels else "Node"
     priority_map = {
         "Function": 0,
@@ -741,6 +853,7 @@ def _node_priority(node: RetrievedNode) -> tuple[int, float]:
 
 
 def _dedupe_hits(hits: list[RetrievedNode], top_k: int) -> list[RetrievedNode]:
+    """Deduplicate nodes by graph_id, keeping the highest score."""
     best: dict[str, RetrievedNode] = {}
     for hit in hits:
         current = best.get(hit.graph_id)
@@ -750,6 +863,7 @@ def _dedupe_hits(hits: list[RetrievedNode], top_k: int) -> list[RetrievedNode]:
 
 
 def get_available_index_names(tx) -> set[str]:
+    """Query Neo4j for names of all existing indexes."""
     try:
         records = tx.run("SHOW INDEXES YIELD name RETURN collect(name) AS names")
         row = records.single()

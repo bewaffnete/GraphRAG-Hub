@@ -28,6 +28,30 @@ EMBEDDING_SCHEMA_VERSION = "2026-05-13-public-api-v2"
 
 @dataclass
 class EmbeddingConfig:
+    """
+    Configuration for embedding generation and indexing.
+
+    Attributes:
+        provider (str): Embedding provider ('hash', 'openai', 'gemini', 'ollama').
+        model (str): Specific model name to use.
+        dimensions (int): Vector dimensionality.
+        batch_size (int): Number of texts to embed in one request.
+        batch_delay_seconds (float): Delay between batches to avoid rate limits.
+        max_text_length (int): Maximum length of text to embed before truncation.
+        openai_api_key (str | None): API key for OpenAI.
+        openai_base_url (str): Base URL for OpenAI API.
+        gemini_api_key (str | None): API key for Gemini.
+        gemini_base_url (str): Base URL for Gemini API.
+        gemini_task_type (str): Task type for Gemini embeddings.
+        ollama_base_url (str): Base URL for Ollama API.
+        ollama_truncate (bool): Whether Ollama should truncate long inputs.
+        similarity (str): Similarity function ('cosine', 'euclidean').
+        include_modules (bool): Whether to index modules.
+        include_classes (bool): Whether to index classes.
+        include_functions (bool): Whether to index functions.
+        include_examples (bool): Whether to index code examples.
+        embedding_schema_version (str): Internal versioning for embeddings.
+    """
     provider: str = "hash"
     model: str = "hash-embedding-v1"
     dimensions: int = 256
@@ -51,6 +75,7 @@ class EmbeddingConfig:
 
 @dataclass
 class EmbeddingDocument:
+    """Represents a piece of text ready to be embedded."""
     graph_id: str
     label: str
     embedding_text: str
@@ -58,11 +83,14 @@ class EmbeddingDocument:
 
 
 class EmbeddingProvider(Protocol):
+    """Protocol for embedding providers."""
     def embed(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings for a list of texts."""
         ...
 
 
 class HashEmbeddingProvider:
+    """A deterministic embedding provider based on SHA-256 hashing."""
     def __init__(self, dimensions: int):
         self.dimensions = dimensions
 
@@ -71,6 +99,7 @@ class HashEmbeddingProvider:
 
 
 class OpenAIEmbeddingProvider:
+    """Embedding provider using OpenAI's API."""
     def __init__(self, api_key: str, model: str, base_url: str):
         self.api_key = api_key
         self.model = model
@@ -94,6 +123,7 @@ class OpenAIEmbeddingProvider:
 
 
 class GeminiEmbeddingProvider:
+    """Embedding provider using Google's Gemini API."""
     def __init__(self, api_key: str, model: str, base_url: str, output_dimensionality: int, task_type: str):
         self.api_key = api_key
         self.model = model.removeprefix("models/")
@@ -135,6 +165,7 @@ class GeminiEmbeddingProvider:
 
 
 class OllamaEmbeddingProvider:
+    """Embedding provider using a local Ollama instance."""
     def __init__(self, model: str, base_url: str, dimensions: int | None, truncate: bool):
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -164,7 +195,21 @@ class OllamaEmbeddingProvider:
 
 
 class Neo4jEmbeddingIndexer:
+    """
+    Indexer that computes embeddings for graph nodes and stores them in Neo4j.
+
+    It handles schema creation (vector and fulltext indexes), stale data cleanup,
+    and batch processing of nodes.
+    """
+
     def __init__(self, neo4j_config: Neo4jConfig, embedding_config: EmbeddingConfig):
+        """
+        Initialize the indexer.
+
+        Args:
+            neo4j_config (Neo4jConfig): Neo4j connection settings.
+            embedding_config (EmbeddingConfig): Embedding provider settings.
+        """
         if GraphDatabase is None:
             raise RuntimeError(
                 "The 'neo4j' package is not installed. Activate the target environment and install it first."
@@ -179,9 +224,19 @@ class Neo4jEmbeddingIndexer:
         self.provider = build_embedding_provider(embedding_config)
 
     def close(self) -> None:
+        """Close the Neo4j driver connection."""
         self.driver.close()
 
     def index_graph(self, graph_id: str) -> dict[str, int | str]:
+        """
+        Generate and store embeddings for all applicable nodes in a graph.
+
+        Args:
+            graph_id (str): The unique ID of the graph to index.
+
+        Returns:
+            dict: Statistics about the indexing process.
+        """
         with self.driver.session(database=self.neo4j_config.database) as session:
             session.execute_write(self._ensure_fulltext_indexes)
             session.execute_write(self._clear_stale_embeddings, graph_id, self.embedding_config.embedding_schema_version)
@@ -227,6 +282,7 @@ class Neo4jEmbeddingIndexer:
 
     @staticmethod
     def _clear_stale_embeddings(tx, graph_id: str, embedding_schema_version: str) -> None:
+        """Remove embeddings that use an outdated schema version."""
         tx.run(
             """
             MATCH (n)
@@ -246,6 +302,7 @@ class Neo4jEmbeddingIndexer:
 
     @staticmethod
     def _ensure_fulltext_indexes(tx) -> None:
+        """Create fulltext search indexes if they don't exist."""
         statements = [
             "CREATE FULLTEXT INDEX module_content_fulltext IF NOT EXISTS FOR (n:Module) ON EACH [n.name, n.file_path, n.docstring, n.embedding_text]",
             "CREATE FULLTEXT INDEX class_content_fulltext IF NOT EXISTS FOR (n:Class) ON EACH [n.name, n.qualname, n.docstring, n.embedding_text]",
@@ -256,6 +313,7 @@ class Neo4jEmbeddingIndexer:
             tx.run(statement)
 
     def _ensure_vector_indexes(self, tx, dimensions: int) -> None:
+        """Create vector similarity indexes for supported node types."""
         statements = []
         similarity = self.embedding_config.similarity
         if self.embedding_config.include_modules:
@@ -271,6 +329,7 @@ class Neo4jEmbeddingIndexer:
 
     @staticmethod
     def _collect_documents(tx, graph_id: str, config: EmbeddingConfig) -> list[EmbeddingDocument]:
+        """Fetch node data from Neo4j and format it for embedding."""
         documents: list[EmbeddingDocument] = []
         if config.include_modules:
             result = tx.run(
@@ -402,6 +461,7 @@ class Neo4jEmbeddingIndexer:
 
     @staticmethod
     def _write_embeddings(tx, rows: list[dict[str, Any]]) -> None:
+        """Save computed embeddings back to Neo4j nodes."""
         for label in ("Module", "Class", "Function", "Example"):
             batch = [row for row in rows if row["label"] == label]
             if not batch:
@@ -422,6 +482,7 @@ class Neo4jEmbeddingIndexer:
 
 
 def build_embedding_provider(config: EmbeddingConfig) -> EmbeddingProvider:
+    """Factory function to build an embedding provider from configuration."""
     provider = config.provider.lower()
     if provider == "hash":
         return HashEmbeddingProvider(config.dimensions)
@@ -482,6 +543,7 @@ def clean_signature(signature: str | None) -> str:
 
 
 def build_module_embedding_text(name: str, file_path: str | None, docstring: str | None, max_length: int) -> str:
+    """Construct the text representation of a module for embedding."""
     parts = [f"{name}", "Type: Module"]
 
     # Remove internal technical paths
@@ -505,6 +567,7 @@ def build_class_embedding_text(
     api_rank: float,
     max_length: int,
 ) -> str:
+    """Construct the text representation of a class for embedding."""
     parts = [
         f"{qualname}",
         "Type: Class",
@@ -536,6 +599,7 @@ def build_function_embedding_text(
     parent_class: str | None,
     max_length: int,
 ) -> str:
+    """Construct the text representation of a function/method for embedding."""
     parts = [
         f"{qualname}",
         f"Type: {'Method' if is_method else 'Function'}",
@@ -559,6 +623,7 @@ def build_example_embedding_text(
     owner_label: str | None,
     max_length: int,
 ) -> str:
+    """Construct the text representation of a code example for embedding."""
     parts = []
     if owner_label:
         parts.append(f"Owner: {owner_label}")
@@ -571,6 +636,7 @@ def build_example_embedding_text(
 
 
 def _hash_embed(text: str, dimensions: int) -> list[float]:
+    """Deterministic hash-based embedding fallback."""
     vector = [0.0] * dimensions
     for token in text.split():
         digest = hashlib.sha256(token.encode("utf-8")).digest()
@@ -585,12 +651,14 @@ def _hash_embed(text: str, dimensions: int) -> list[float]:
 
 
 def _truncate(text: str, max_length: int) -> str:
+    """Truncate text to a maximum length with a suffix."""
     if len(text) <= max_length:
         return text
     return text[: max_length - 14] + "\n\n[truncated]"
 
 
 def _vector_index_statement(index_name: str, label: str, dimensions: int, similarity: str) -> str:
+    """Generate a Cypher statement to create a vector index."""
     return (
         f"CREATE VECTOR INDEX {index_name} IF NOT EXISTS "
         f"FOR (n:{label}) ON (n.embedding) "
@@ -599,10 +667,12 @@ def _vector_index_statement(index_name: str, label: str, dimensions: int, simila
 
 
 def _utc_now() -> str:
+    """Get current UTC timestamp in ISO format."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _build_progress_bar(total: int, graph_id: str, model: str):
+    """Optionally build a tqdm progress bar."""
     if tqdm is None:
         return None
     return tqdm(

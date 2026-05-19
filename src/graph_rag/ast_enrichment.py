@@ -13,13 +13,21 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ComplexityMetrics:
-    """Cyclomatic complexity and structural depth metrics."""
+    """
+    Container for code complexity and structural metrics.
+
+    Attributes:
+        cyclomatic_complexity (int): Number of linearly independent paths.
+        max_nesting_depth (int): Maximum depth of nested control structures.
+        branch_count (int): Total number of decision branches.
+    """
 
     cyclomatic_complexity: int = 1
     max_nesting_depth: int = 0
     branch_count: int = 0
 
     def to_dict(self) -> dict:
+        """Convert metrics to a dictionary."""
         return {
             "cyclomatic_complexity": self.cyclomatic_complexity,
             "max_nesting_depth": self.max_nesting_depth,
@@ -33,7 +41,8 @@ class ComplexityMetrics:
 
 
 class _SkeletonTransformer(ast.NodeTransformer):
-    """Strips function bodies to only keep control flow, calls, and returns.
+    """
+    Strips function bodies to only keep control flow, calls, and returns.
 
     Keeps:
       - if / elif / else, for, while (full structure)
@@ -182,10 +191,17 @@ class _SkeletonTransformer(ast.NodeTransformer):
 
 
 def extract_logic_skeleton(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
-    """Return a cleaned logic skeleton string for a function/method node.
+    """
+    Extract a cleaned logic skeleton from a function/method AST node.
 
-    The skeleton preserves control flow, calls, returns, and raises while
-    stripping assignments, try/except wrappers, and other noise.
+    The skeleton preserves control flow (if, for, while, with), function calls,
+    returns, yields, and raises while stripping assignments and docstrings.
+
+    Args:
+        node (ast.FunctionDef | ast.AsyncFunctionDef): The function AST node.
+
+    Returns:
+        str | None: A string representing the logic skeleton, or None if empty.
     """
     try:
         tree_copy = copy.deepcopy(node)
@@ -212,7 +228,7 @@ def extract_logic_skeleton(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str 
 
 
 class _CallCollector(ast.NodeVisitor):
-    """Walks AST and collects all function/method call names."""
+    """AST visitor that collects names of all function and method calls."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -225,6 +241,7 @@ class _CallCollector(ast.NodeVisitor):
 
     @staticmethod
     def _resolve_call_name(node: ast.AST) -> str | None:
+        """Recursively resolve the full name of a call (e.g., 'obj.method')."""
         if isinstance(node, ast.Name):
             return node.id
         if isinstance(node, ast.Attribute):
@@ -241,7 +258,15 @@ class _CallCollector(ast.NodeVisitor):
 
 
 def extract_internal_calls(node: ast.AST) -> list[str]:
-    """Return a deduplicated, sorted list of all called function/method names."""
+    """
+    Extract a deduplicated, sorted list of all called function/method names.
+
+    Args:
+        node (ast.AST): The AST node to inspect.
+
+    Returns:
+        list[str]: List of unique call names.
+    """
     collector = _CallCollector()
     collector.visit(node)
     # Deduplicate while preserving first-seen order
@@ -260,7 +285,7 @@ def extract_internal_calls(node: ast.AST) -> list[str]:
 
 
 class _ConstantCollector(ast.NodeVisitor):
-    """Collects string and numeric literals from AST."""
+    """AST visitor that collects meaningful string and numeric literals."""
 
     def __init__(self) -> None:
         self.constants: list[str] = []
@@ -278,7 +303,15 @@ class _ConstantCollector(ast.NodeVisitor):
 
 
 def extract_constants(node: ast.AST) -> list[str]:
-    """Return a deduplicated list of meaningful string and numeric constants."""
+    """
+    Extract a deduplicated list of meaningful string and numeric constants.
+
+    Args:
+        node (ast.AST): The AST node to inspect.
+
+    Returns:
+        list[str]: List of unique constant values as strings.
+    """
     collector = _ConstantCollector()
     collector.visit(node)
     seen: set[str] = set()
@@ -296,7 +329,7 @@ def extract_constants(node: ast.AST) -> list[str]:
 
 
 class _ComplexityVisitor(ast.NodeVisitor):
-    """Computes cyclomatic complexity, max nesting depth, and branch count."""
+    """AST visitor that computes complexity metrics based on control flow nodes."""
 
     def __init__(self) -> None:
         self.complexity = 1  # Base complexity
@@ -362,7 +395,15 @@ class _ComplexityVisitor(ast.NodeVisitor):
 
 
 def compute_complexity_metrics(node: ast.AST) -> ComplexityMetrics:
-    """Compute cyclomatic complexity, max nesting depth, and branch count."""
+    """
+    Compute cyclomatic complexity, nesting depth, and branch count for an AST.
+
+    Args:
+        node (ast.AST): The AST node to analyze.
+
+    Returns:
+        ComplexityMetrics: The computed metrics.
+    """
     visitor = _ComplexityVisitor()
     visitor.visit(node)
     return ComplexityMetrics(

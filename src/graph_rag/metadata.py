@@ -8,6 +8,17 @@ from .models import LibraryMetadata
 
 
 def detect_library_metadata(root: Path) -> LibraryMetadata:
+    """
+    Detect library metadata by inspecting project files like pyproject.toml, 
+    setup.cfg, or package.json. If these are missing, it attempts to 
+    read installed distribution info.
+
+    Args:
+        root (Path): The root directory of the library to inspect.
+
+    Returns:
+        LibraryMetadata: An object containing name, version, license, and paths.
+    """
     pyproject_path = root / "pyproject.toml"
     setup_cfg_path = root / "setup.cfg"
     package_json_path = root / "package.json"
@@ -71,6 +82,15 @@ def detect_library_metadata(root: Path) -> LibraryMetadata:
 
 
 def _detect_readme(root: Path) -> Path | None:
+    """
+    Find the README file in the root directory.
+
+    Args:
+        root (Path): Directory to search.
+
+    Returns:
+        Path | None: Path to the README file if found, otherwise None.
+    """
     candidates = sorted(root.glob("README*"))
     for candidate in candidates:
         if candidate.is_file():
@@ -79,6 +99,15 @@ def _detect_readme(root: Path) -> Path | None:
 
 
 def _detect_dist_info(root: Path) -> Path | None:
+    """
+    Try to find the .dist-info directory for a given library root.
+
+    Args:
+        root (Path): The library source root.
+
+    Returns:
+        Path | None: Path to the .dist-info directory if found.
+    """
     parent = root.parent
     normalized = root.name.replace("-", "_").lower()
     for candidate in sorted(parent.glob("*.dist-info")):
@@ -95,6 +124,15 @@ def _detect_dist_info(root: Path) -> Path | None:
 
 
 def _read_dist_info_metadata(dist_info: Path) -> tuple[str | None, str | None, str | None]:
+    """
+    Read Name, Version, and License from a .dist-info/METADATA file.
+
+    Args:
+        dist_info (Path): Path to the .dist-info directory.
+
+    Returns:
+        tuple: (name, version, license) strings, any of which can be None.
+    """
     metadata_path = dist_info / "METADATA"
     if not metadata_path.exists():
         return None, None, None
@@ -109,6 +147,15 @@ def _read_dist_info_metadata(dist_info: Path) -> tuple[str | None, str | None, s
 
 
 def _read_top_level_modules(dist_info: Path) -> set[str]:
+    """
+    Read top-level module names from .dist-info/top_level.txt.
+
+    Args:
+        dist_info (Path): Path to the .dist-info directory.
+
+    Returns:
+        set[str]: Set of module names.
+    """
     top_level_path = dist_info / "top_level.txt"
     if not top_level_path.exists():
         return set()
@@ -123,6 +170,15 @@ def _read_top_level_modules(dist_info: Path) -> set[str]:
 
 
 def _read_record_top_level_modules(dist_info: Path) -> set[str]:
+    """
+    Extract top-level module names by parsing .dist-info/RECORD.
+
+    Args:
+        dist_info (Path): Path to the .dist-info directory.
+
+    Returns:
+        set[str]: Set of discovered top-level module names.
+    """
     record_path = dist_info / "RECORD"
     if not record_path.exists():
         return set()

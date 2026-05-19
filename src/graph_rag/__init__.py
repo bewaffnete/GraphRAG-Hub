@@ -1,4 +1,7 @@
-"""Parsing primitives for Graph RAG ingestion."""
+"""
+Graph RAG: A pipeline for parsing Python libraries, indexing them into Neo4j 
+using embeddings, and performing hybrid graph-based retrieval.
+"""
 
 from .embedding_indexer import EmbeddingConfig, Neo4jEmbeddingIndexer
 from .models import LibrarySnapshot
@@ -16,3 +19,5 @@ __all__ = [
     "RetrievalConfig",
     "parse_python_library",
 ]
+
+__version__ = "0.1.0"

@@ -1,3 +1,10 @@
+"""
+Command-line interface for the Graph RAG pipeline.
+
+Provides commands for parsing libraries, loading snapshots into Neo4j,
+generating embeddings, and performing retrieval/chat operations.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -19,6 +26,7 @@ KNOWN_OLLAMA_MODELS = ("embeddinggemma", "qwen3-embedding", "all-minilm")
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the Graph RAG CLI."""
     parser = argparse.ArgumentParser(description="Graph RAG pipeline for parsing, loading, embedding, and retrieval.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -79,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_neo4j_args(parser: argparse.ArgumentParser) -> None:
+    """Add standard Neo4j connection arguments to a parser."""
     parser.add_argument("--uri", default=os.getenv("NEO4J_URI", "bolt://localhost:7687"), help="Neo4j URI.")
     parser.add_argument("--username", default=os.getenv("NEO4J_USERNAME", "neo4j"), help="Neo4j username.")
     parser.add_argument("--password", default=os.getenv("NEO4J_PASSWORD"), help="Neo4j password.")
@@ -86,6 +95,7 @@ def add_neo4j_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_embedding_args(parser: argparse.ArgumentParser, *, query_mode: bool) -> None:
+    """Add embedding provider and model arguments to a parser."""
     parser.add_argument("--provider", default="hash", choices=["hash", "openai", "gemini", "ollama"], help="Embedding provider.")
     parser.add_argument("--model", default=os.getenv("EMBEDDING_MODEL", "hash-embedding-v1"), help="Embedding model name.")
     parser.add_argument("--dimensions", type=int, default=int(os.getenv("EMBEDDING_DIMENSIONS", "256")), help="Embedding dimensions.")
@@ -113,12 +123,14 @@ def add_embedding_args(parser: argparse.ArgumentParser, *, query_mode: bool) -> 
 
 
 def run_parse(args: argparse.Namespace) -> None:
+    """Run the 'parse' command."""
     snapshot = parse_python_library(Path(args.path))
     payload = snapshot.to_json(indent=args.indent)
     write_or_print(payload, args.output)
 
 
 def run_load(args: argparse.Namespace) -> None:
+    """Run the 'load' command."""
     from .query_decomposition import register_graph_in_config
     snapshot = load_snapshot_from_args(args)
     result = load_snapshot_to_neo4j(snapshot, args)
@@ -129,12 +141,14 @@ def run_load(args: argparse.Namespace) -> None:
 
 
 def run_embed(args: argparse.Namespace) -> None:
+    """Run the 'embed' command."""
     result = embed_graph(args.graph_id, args)
     print(f"Indexed graph_id={result['graph_id']}")
     print(f"Embedded nodes={result['embedded_nodes']}")
 
 
 def run_ingest(args: argparse.Namespace) -> None:
+    """Run the 'ingest' command (parse + load + embed)."""
     from .query_decomposition import register_graph_in_config
     if not args.path:
         from .config_ui import select_installed_package_interactive
@@ -162,6 +176,7 @@ def run_ingest(args: argparse.Namespace) -> None:
 
 
 def run_retrieve(args: argparse.Namespace) -> None:
+    """Run the 'retrieve' command."""
     require_neo4j_password(args)
     neo4j_config = build_neo4j_config(args)
     embedding_config = build_embedding_config(args, query_mode=True)
@@ -196,6 +211,15 @@ def run_retrieve(args: argparse.Namespace) -> None:
 
 
 def run_chat(args: argparse.Namespace) -> None:
+    """
+    Run the 'chat' command (agentic workflow).
+
+    Invokes the LangGraph-based workflow to decompose the query,
+    retrieve context from multiple libraries, and synthesize a final answer.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments.
+    """
     from .agent_workflow import build_agent_graph
     
     app = build_agent_graph()
@@ -213,17 +237,24 @@ def run_chat(args: argparse.Namespace) -> None:
 
 
 def run_setup(args: argparse.Namespace) -> None:
+    """
+    Open the interactive configuration control panel.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments.
+    """
     interactive_main()
 
 
-
 def load_snapshot_from_args(args: argparse.Namespace) -> LibrarySnapshot:
+    """Helper to load a LibrarySnapshot from JSON or by parsing a path."""
     if getattr(args, "snapshot", None):
         return LibrarySnapshot.from_json_file(args.snapshot)
     return parse_python_library(Path(args.path))
 
 
 def load_snapshot_to_neo4j(snapshot: LibrarySnapshot, args: argparse.Namespace) -> dict:
+    """Helper to load a snapshot into Neo4j."""
     require_neo4j_password(args)
     neo4j_config = build_neo4j_config(args)
     loader = Neo4jGraphLoader(neo4j_config)
@@ -234,6 +265,7 @@ def load_snapshot_to_neo4j(snapshot: LibrarySnapshot, args: argparse.Namespace) 
 
 
 def embed_graph(graph_id: str, args: argparse.Namespace) -> dict:
+    """Helper to generate embeddings for an existing graph in Neo4j."""
     require_neo4j_password(args)
     neo4j_config = build_neo4j_config(args)
     embedding_config = build_embedding_config(args, query_mode=False)
@@ -245,6 +277,7 @@ def embed_graph(graph_id: str, args: argparse.Namespace) -> dict:
 
 
 def build_neo4j_config(args: argparse.Namespace) -> Neo4jConfig:
+    """Construct a Neo4jConfig from CLI arguments."""
     return Neo4jConfig(
         uri=args.uri,
         username=args.username,
@@ -257,6 +290,7 @@ def build_neo4j_config(args: argparse.Namespace) -> Neo4jConfig:
 
 
 def build_embedding_config(args: argparse.Namespace, *, query_mode: bool) -> EmbeddingConfig:
+    """Construct an EmbeddingConfig from CLI arguments."""
     model = resolve_embedding_model(args.provider, args.model)
     batch_size = getattr(args, "batch_size", 32)
     if not query_mode and batch_size == 32 and args.provider == "gemini":
@@ -293,6 +327,7 @@ def build_embedding_config(args: argparse.Namespace, *, query_mode: bool) -> Emb
 
 
 def resolve_embedding_model(provider: str, model: str) -> str:
+    """Resolve default model names for different providers."""
     if model != "hash-embedding-v1":
         return model
     if provider == "gemini":
@@ -305,6 +340,7 @@ def resolve_embedding_model(provider: str, model: str) -> str:
 
 
 def warn_unknown_model(provider: str, model: str) -> None:
+    """Print a warning if an embedding model is not in the known list."""
     if provider == "gemini" and model not in KNOWN_GEMINI_MODELS and not model.startswith("models/"):
         print(f"Warning: unknown Gemini embedding model; continuing with {model}.")
     if provider == "ollama" and model not in KNOWN_OLLAMA_MODELS and "/" not in model and ":" not in model:
@@ -312,11 +348,13 @@ def warn_unknown_model(provider: str, model: str) -> None:
 
 
 def require_neo4j_password(args: argparse.Namespace) -> None:
+    """Ensure a Neo4j password is provided or exit."""
     if not args.password:
         raise SystemExit("Neo4j password is required. Pass --password or set NEO4J_PASSWORD.")
 
 
 def write_or_print(payload: str, output: str | None) -> None:
+    """Write string to a file or print it to stdout."""
     if output:
         Path(output).write_text(payload, encoding="utf-8")
         return
@@ -324,6 +362,7 @@ def write_or_print(payload: str, output: str | None) -> None:
 
 
 def print_load_result(result: dict, database: str) -> None:
+    """Format and print the results of a snapshot load."""
     print(f"Loaded graph_id={result['graph_id']} into {database}")
     print("Counts:", ", ".join(f"{key}={value}" for key, value in result.items() if key != "graph_id"))
 
@@ -337,6 +376,7 @@ except ImportError:
     pass
 
 def get_available_graphs(uri: str, username: str, password: str | None, database: str) -> list[str]:
+    """Fetch a list of all library graph IDs currently in Neo4j."""
     if not password:
         return []
     try:
@@ -352,6 +392,7 @@ def get_available_graphs(uri: str, username: str, password: str | None, database
             driver.close()
 
 def interactive_main() -> None:
+    """Entry point for the interactive configuration and workflow TUI."""
     import questionary
     from rich.console import Console
     from rich.panel import Panel
@@ -534,6 +575,12 @@ def interactive_main() -> None:
 
 
 def main() -> None:
+    """
+    Main CLI entry point.
+
+    Routes execution based on provided command-line arguments or
+    starts the interactive TUI if no arguments are given.
+    """
     if len(sys.argv) == 1:
         try:
             interactive_main()
@@ -552,4 +599,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

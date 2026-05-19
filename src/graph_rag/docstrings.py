@@ -14,6 +14,15 @@ PROMPT_BLOCK_RE = re.compile(r"(^>>> .+(?:\n(?:\.\.\.|\S).+)*)", re.MULTILINE)
 
 
 def _split_sections(docstring: str) -> dict[str, list[str]]:
+    """
+    Split a docstring into sections based on headers like 'Args:', 'Returns:', etc.
+
+    Args:
+        docstring (str): The raw docstring to split.
+
+    Returns:
+        dict[str, list[str]]: A mapping of section names to their constituent lines.
+    """
     sections: dict[str, list[str]] = {"summary": []}
     current = "summary"
     for line in docstring.splitlines():
@@ -27,11 +36,32 @@ def _split_sections(docstring: str) -> dict[str, list[str]]:
 
 
 def _cleanup_description(lines: Iterable[str]) -> str | None:
+    """
+    Join and clean up lines of description text.
+
+    Args:
+        lines (Iterable[str]): Lines of text to process.
+
+    Returns:
+        str | None: The cleaned-up text, or None if empty.
+    """
     text = "\n".join(line.rstrip() for line in lines).strip()
     return text or None
 
 
 def parse_docstring(docstring: str | None) -> tuple[dict[str, str], list[ParameterInfo], ReturnInfo | None, list[RaiseInfo], list[CodeExample]]:
+    """
+    Parse a Python docstring (Google/NumPy style) into structured metadata.
+
+    Extracts general sections, parameters, return info, exceptions raised, 
+    and code examples.
+
+    Args:
+        docstring (str | None): The docstring to parse.
+
+    Returns:
+        tuple: (parsed_sections, parameters, returns, raises, examples)
+    """
     if not docstring:
         return {}, [], None, [], []
 

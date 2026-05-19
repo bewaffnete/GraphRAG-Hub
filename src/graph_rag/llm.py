@@ -4,8 +4,23 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 def get_llm(temperature: float = 0, json_mode: bool = False) -> BaseChatModel:
     """
-    Factory function to get an LLM based on environment variables.
-    Supported providers: ollama, openai, anthropic, gemini
+    Factory function to get a LangChain LLM based on environment variables.
+
+    Supported providers (set via LLM_PROVIDER):
+    - 'ollama': Requires OLLAMA_BASE_URL (defaults to localhost).
+    - 'openai': Requires OPENAI_API_KEY.
+    - 'anthropic': Requires ANTHROPIC_API_KEY.
+    - 'gemini': Requires GEMINI_API_KEY.
+
+    Args:
+        temperature (float): Sampling temperature. Defaults to 0.
+        json_mode (bool): Whether to request JSON output from the model.
+
+    Returns:
+        BaseChatModel: A configured LangChain chat model instance.
+
+    Raises:
+        ValueError: If the specified LLM_PROVIDER is unsupported.
     """
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
     model = os.getenv("LLM_MODEL")

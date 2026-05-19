@@ -1,3 +1,5 @@
+"""Interactive configuration utilities for the Graph RAG CLI."""
+
 import os
 from pathlib import Path
 import importlib.metadata
@@ -34,15 +36,18 @@ KNOWN_GEMINI_MODELS = ["gemini-embedding-001", "gemini-embedding-2"]
 KNOWN_OLLAMA_MODELS = ["embeddinggemma", "qwen3-embedding", "all-minilm"]
 
 def _ensure_env_file() -> None:
+    """Create a .env file if it doesn't exist."""
     if not ENV_FILE.exists():
         ENV_FILE.touch()
 
 def _save_env(key: str, value: str) -> None:
+    """Save a key-value pair to the .env file and update current environment."""
     _ensure_env_file()
     set_key(str(ENV_FILE), key, value)
     os.environ[key] = value
 
 def setup_neo4j_interactive() -> None:
+    """Interactive wizard for Neo4j connection settings."""
     console.print("[cyan]Neo4j Configuration[/cyan]")
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     username = os.getenv("NEO4J_USERNAME", "neo4j")
@@ -79,6 +84,7 @@ def setup_neo4j_interactive() -> None:
 
 
 def setup_embedding_interactive() -> None:
+    """Interactive wizard for Embedding provider settings."""
     console.print("[cyan]Embedding Provider Configuration[/cyan]")
     provider = os.getenv("EMBEDDING_PROVIDER", "hash")
     provider = questionary.select(
@@ -132,10 +138,12 @@ def setup_embedding_interactive() -> None:
 
 
 def get_installed_packages() -> list[str]:
+    """Get a list of names of all installed pip packages."""
     return sorted(list({dist.metadata["Name"] for dist in importlib.metadata.distributions() if dist.metadata["Name"]}))
 
 
 def select_installed_package_interactive() -> str | None:
+    """Prompt user to select an installed package and resolve its physical path."""
     packages = get_installed_packages()
     choices = ["[Enter manual path]"] + packages
     
@@ -173,6 +181,7 @@ def select_installed_package_interactive() -> str | None:
 
 
 def print_config_status() -> None:
+    """Print the current Graph RAG configuration in a table."""
     table = Table(show_header=False, box=None)
     table.add_column("Key", style="cyan")
     table.add_column("Value", style="green")
@@ -188,4 +197,3 @@ def print_config_status() -> None:
     table.add_row("Model:", model)
     
     console.print(Panel(table, title="[bold]Graph RAG Configuration[/bold]", expand=False))
-

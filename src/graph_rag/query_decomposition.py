@@ -1,3 +1,5 @@
+"""LLM-powered decomposition of complex queries into structured sub-queries."""
+
 from typing import List, Optional, Any
 import yaml
 import os
@@ -7,6 +9,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from .llm import get_llm
 
 class SubQuery(BaseModel):
+    """Structured representation of a single search task."""
     id: int = Field(description="Unique identifier for the sub-query")
     query: str = Field(description="The decomposed sub-query text")
     libraries: List[str] = Field(description="List of libraries this sub-query relates to")
@@ -14,11 +17,20 @@ class SubQuery(BaseModel):
     aspects: List[str] = Field(description="Specific aspects or features to search for")
 
 class QueryDecompositionResult(BaseModel):
+    """The full result of a query decomposition operation."""
     reasoning: str = Field(description="Brief explanation of the decomposition logic")
     sub_queries: List[SubQuery] = Field(description="List of structured sub-queries")
 
 def load_available_graphs(path: str = "available_graphs.yaml") -> List[dict]:
-    """Loads the list of available graphs from a YAML file."""
+    """
+    Load the list of available library graphs from a YAML configuration file.
+
+    Args:
+        path (str): Path to the YAML file. Defaults to 'available_graphs.yaml'.
+
+    Returns:
+        List[dict]: List of library metadata dictionaries.
+    """
     if not os.path.exists(path):
         return []
     with open(path, 'r') as f:
@@ -28,7 +40,14 @@ def load_available_graphs(path: str = "available_graphs.yaml") -> List[dict]:
     return data.get('graphs', [])
 
 def register_graph_in_config(name: str, version: str, path: str = "available_graphs.yaml"):
-    """Registers or updates a graph in the available_graphs.yaml file."""
+    """
+    Register or update a library graph in the YAML configuration file.
+
+    Args:
+        name (str): Library name.
+        version (str): Library version.
+        path (str): Path to the configuration file.
+    """
     name = name.replace("_", "-").lower()
     graphs = load_available_graphs(path)
     
@@ -56,7 +75,15 @@ def register_graph_in_config(name: str, version: str, path: str = "available_gra
     print(f"[Config] Registered {name} (version {version}) in {path}")
 
 class QueryDecomposer:
+    """
+    Uses an LLM to decompose complex technical queries into structured sub-queries.
+
+    The decomposer analyzes a user query and generates a set of smaller, targeted 
+    searches that can be performed against specific library graphs indexed in the system.
+    """
+
     def __init__(self):
+        """Initialize the decomposer with an LLM and JSON parser."""
         self.llm = get_llm(temperature=0, json_mode=True)
         self.parser = JsonOutputParser(pydantic_object=QueryDecompositionResult)
         
@@ -81,6 +108,15 @@ If a query asks about a library not in this list, focus only on the available on
         ])
 
     def decompose(self, query: str) -> QueryDecompositionResult:
+        """
+        Perform query decomposition.
+
+        Args:
+            query (str): The original user query.
+
+        Returns:
+            QueryDecompositionResult: The structured decomposition result.
+        """
         graphs = load_available_graphs()
         lib_info = "\n".join([f"- {g['name']}: {g.get('description', 'No description')}" for g in graphs])
         

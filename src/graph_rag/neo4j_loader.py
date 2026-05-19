@@ -15,6 +15,18 @@ except ImportError:  # pragma: no cover - handled at runtime with a clear error
 
 @dataclass
 class Neo4jConfig:
+    """
+    Configuration for Neo4j connection and indexing.
+
+    Attributes:
+        uri (str): Connection URI.
+        username (str): Username for authentication.
+        password (str): Password for authentication.
+        database (str): Target database name.
+        create_vector_indexes (bool): Whether to auto-create vector indexes.
+        vector_dimensions (int): Dimensionality for vector indexes.
+        vector_similarity (str): Similarity function for vector indexes.
+    """
     uri: str
     username: str
     password: str
@@ -25,7 +37,20 @@ class Neo4jConfig:
 
 
 class Neo4jGraphLoader:
+    """
+    Loader for importing LibrarySnapshots into a Neo4j graph database.
+
+    Handles schema initialization (constraints, fulltext/vector indexes) 
+    and the recursive upsert of modules, classes, functions, and examples.
+    """
+
     def __init__(self, config: Neo4jConfig):
+        """
+        Initialize the loader.
+
+        Args:
+            config (Neo4jConfig): Neo4j configuration settings.
+        """
         if GraphDatabase is None:
             raise RuntimeError(
                 "The 'neo4j' package is not installed. Activate the target environment and install it first."
@@ -38,9 +63,19 @@ class Neo4jGraphLoader:
         )
 
     def close(self) -> None:
+        """Close the Neo4j driver connection."""
         self.driver.close()
 
     def load_snapshot(self, snapshot: LibrarySnapshot) -> dict[str, Any]:
+        """
+        Load a LibrarySnapshot into Neo4j.
+
+        Args:
+            snapshot (LibrarySnapshot): The snapshot to load.
+
+        Returns:
+            dict[str, Any]: Metadata about the load, including the generated graph_id.
+        """
         graph_id = build_graph_id(snapshot)
         with self.driver.session(database=self.config.database) as session:
             session.execute_write(self._ensure_constraints)
@@ -50,6 +85,7 @@ class Neo4jGraphLoader:
         return {"graph_id": graph_id, **stats}
 
     def _ensure_constraints(self, tx) -> None:
+        """Ensure uniqueness constraints exist for all node types."""
         statements = [
             "CREATE CONSTRAINT library_graph_id IF NOT EXISTS FOR (n:Library) REQUIRE n.graph_id IS UNIQUE",
             "CREATE CONSTRAINT module_graph_id IF NOT EXISTS FOR (n:Module) REQUIRE n.graph_id IS UNIQUE",
@@ -64,6 +100,7 @@ class Neo4jGraphLoader:
             tx.run(statement)
 
     def _ensure_indexes(self, tx) -> None:
+        """Ensure fulltext and optionally vector indexes exist."""
         statements = [
             "CREATE FULLTEXT INDEX library_name_fulltext IF NOT EXISTS FOR (n:Library) ON EACH [n.name]",
             "CREATE FULLTEXT INDEX module_name_fulltext IF NOT EXISTS FOR (n:Module) ON EACH [n.name, n.file_path]",
@@ -93,6 +130,7 @@ class Neo4jGraphLoader:
                 tx.run(statement)
 
     def _upsert_library(self, tx, snapshot: LibrarySnapshot, graph_id: str) -> None:
+        """Upsert the library root node."""
         metadata = snapshot.metadata
         tx.run(
             """
@@ -118,6 +156,7 @@ class Neo4jGraphLoader:
         )
 
     def _upsert_modules(self, tx, snapshot: LibrarySnapshot, graph_id: str) -> dict[str, int]:
+        """Upsert all modules and their contents from a snapshot."""
         counts = {
             "modules": 0,
             "classes": 0,
@@ -177,6 +216,7 @@ class Neo4jGraphLoader:
 
 
     def _upsert_class(self, tx, class_info: ClassInfo, graph_id: str, owner_graph_id: str) -> None:
+        """Upsert a single class and its hierarchy."""
         class_id = class_graph_id(graph_id, class_info.qualname)
         tx.run(
             """
@@ -250,6 +290,7 @@ class Neo4jGraphLoader:
             )
 
     def _upsert_function(self, tx, function: FunctionInfo, graph_id: str, owner_graph_id: str) -> None:
+        """Upsert a single function/method and its parameters, returns, and raises."""
         function_id = function_graph_id(graph_id, function.qualname)
         tx.run(
             """
@@ -381,6 +422,7 @@ class Neo4jGraphLoader:
         description: str | None,
         source: str,
     ) -> None:
+        """Upsert a code example and link it to its owner."""
         example_id = example_graph_id(graph_id, owner_name, source, code)
         tx.run(
             """
@@ -402,41 +444,50 @@ class Neo4jGraphLoader:
 
 
 def build_graph_id(snapshot: LibrarySnapshot) -> str:
+    """Generate a stable, unique ID for a library snapshot."""
     name = snapshot.metadata.name.replace("_", "-").lower()
     version = snapshot.metadata.version or "unknown"
     return f"{name}:{version}"
 
 
 def module_graph_id(graph_id: str, module_name: str) -> str:
+    """Generate a stable ID for a module node."""
     return f"{graph_id}:module:{module_name}"
 
 
 def class_graph_id(graph_id: str, qualname: str) -> str:
+    """Generate a stable ID for a class node."""
     return f"{graph_id}:class:{qualname}"
 
 
 def function_graph_id(graph_id: str, qualname: str) -> str:
+    """Generate a stable ID for a function/method node."""
     return f"{graph_id}:function:{qualname}"
 
 
 def parameter_graph_id(graph_id: str, function_qualname: str, parameter_name: str, position: int) -> str:
+    """Generate a stable ID for a parameter node."""
     return f"{graph_id}:parameter:{function_qualname}:{position}:{parameter_name}"
 
 
 def type_graph_id(graph_id: str, function_qualname: str, type_name: str) -> str:
+    """Generate a stable ID for a type node."""
     return f"{graph_id}:type:{function_qualname}:{type_name}"
 
 
 def exception_graph_id(graph_id: str, function_qualname: str, exception_name: str) -> str:
+    """Generate a stable ID for an exception node."""
     return f"{graph_id}:exception:{function_qualname}:{exception_name}"
 
 
 def example_graph_id(graph_id: str, owner_name: str, source: str, code: str) -> str:
+    """Generate a stable ID for a code example node."""
     digest = hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
     return f"{graph_id}:example:{owner_name}:{source}:{digest}"
 
 
 def qualify_base_name(module_name: str, base: str) -> str:
+    """Attempt to resolve a base class name to a fully qualified name."""
     if "." in base:
         return base
     module_parts = module_name.split(".")
@@ -446,10 +497,9 @@ def qualify_base_name(module_name: str, base: str) -> str:
 
 
 def is_public_name(name: str) -> bool:
+    """Check if a symbol name is considered public in the API."""
     if not name:
         return True
-    # Check only the last part (member name).
-    # A public class can reside in a private module.
     last_part = name.split(".")[-1]
     if last_part.startswith("_"):
         return last_part.startswith("__") and last_part.endswith("__")
@@ -457,6 +507,7 @@ def is_public_name(name: str) -> bool:
 
 
 def parent_class_name(function_qualname: str) -> str | None:
+    """Extract the parent class name from a qualified function name."""
     parts = function_qualname.split(".")
     if len(parts) < 2:
         return None
@@ -464,6 +515,12 @@ def parent_class_name(function_qualname: str) -> str | None:
 
 
 def api_rank(label: str, name: str, qualname: str) -> float:
+    """
+    Compute a numerical rank representing the API importance of a node.
+    
+    Higher ranks (e.g., 2.0) are for public classes and methods. 
+    Private internal members receive lower ranks.
+    """
     rank = 1.0
     if label == "Class":
         rank += 0.75
@@ -477,6 +534,7 @@ def api_rank(label: str, name: str, qualname: str) -> float:
 
 
 def _vector_index_statement(index_name: str, label: str, property_name: str, dimensions: int, similarity: str) -> str:
+    """Generate a Cypher statement for creating a vector index."""
     return (
         f"CREATE VECTOR INDEX {index_name} IF NOT EXISTS "
         f"FOR (n:{label}) ON (n.{property_name}) "
@@ -485,4 +543,5 @@ def _vector_index_statement(index_name: str, label: str, property_name: str, dim
 
 
 def _dt(value: datetime | None) -> str | None:
+    """Convert datetime to ISO format string."""
     return value.isoformat() if value else None

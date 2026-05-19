@@ -1,3 +1,5 @@
+"""LangGraph-based workflow for multi-stage graph retrieval and answer synthesis."""
+
 from typing import List, TypedDict, Annotated, Union, Any
 import operator
 import os
@@ -12,7 +14,17 @@ from .llm import get_llm
 from langchain_core.messages import HumanMessage, SystemMessage
 
 class AgentState(TypedDict):
-    """The state of the agent."""
+    """
+    The state maintained throughout the agentic workflow.
+
+    Attributes:
+        query (str): The original user query.
+        decomposition (QueryDecompositionResult): Structured sub-queries.
+        candidates (List[dict]): Metadata of nodes discovered in the first stage.
+        selected_ids (List[str]): Graph IDs chosen for full detail retrieval.
+        retrieved_contexts (List[str]): Formatted technical context for the final LLM.
+        final_answer (str): The final synthesized answer.
+    """
     query: str
     decomposition: QueryDecompositionResult
     candidates: Annotated[List[dict], operator.add]
@@ -21,13 +33,23 @@ class AgentState(TypedDict):
     final_answer: str
 
 def decompose_query_node(state: AgentState):
-    """Node to decompose the user query into structured sub-queries."""
+    """
+    Node to decompose the user query into structured sub-queries.
+
+    Uses an LLM to break down a complex question into smaller, targeted
+    searches against specific libraries.
+    """
     decomposer = QueryDecomposer()
     decomposition = decomposer.decompose(state["query"])
     return {"decomposition": decomposition, "candidates": [], "retrieved_contexts": [], "selected_ids": []}
 
 def discover_candidates_node(sub_query: SubQuery):
-    """Node to discover potential candidate nodes (metadata only)."""
+    """
+    Node to discover potential candidate nodes (metadata only).
+
+    Performs a lightweight hybrid search for each sub-query to identify
+    likely relevant entities without fetching full implementation details.
+    """
     neo4j_config = Neo4jConfig(
         uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
         username=os.getenv("NEO4J_USERNAME", "neo4j"),
@@ -47,7 +69,6 @@ def discover_candidates_node(sub_query: SubQuery):
     for lib in libs:
         try:
             config = RetrievalConfig(graph_id=lib, top_k=15, max_entities=10)
-            # We use the internal _hybrid_search to get candidates without full expansion yet
             with retriever.driver.session(database=retriever.neo4j_config.database) as session:
                 routes = [] if config.graph_id else retriever.route_graphs(session, sub_query.query, config)
                 graph_id = config.graph_id or (routes[0].graph_id if routes else None)
@@ -69,7 +90,12 @@ def discover_candidates_node(sub_query: SubQuery):
     return {"candidates": candidates}
 
 def filter_candidates_node(state: AgentState):
-    """Node where LLM decides which candidate nodes are relevant."""
+    """
+    Node where LLM decides which candidate nodes are relevant.
+
+    Inspects the metadata of discovered candidates and selects a subset
+    that is truly critical for answering the query.
+    """
     llm = get_llm(temperature=0, json_mode=True)
     
     candidates_str = json.dumps(state["candidates"], indent=2, ensure_ascii=False)
@@ -100,7 +126,6 @@ Example:
     ])
     
     try:
-        # Clean markdown wrappers if present
         content = response.content.strip()
         if content.startswith("```json"):
             content = content[7:]
@@ -120,7 +145,12 @@ Example:
     return {"selected_ids": selected_ids}
 
 def fetch_details_node(state: AgentState):
-    """Node to fetch full implementation details for selected nodes."""
+    """
+    Node to fetch full implementation details for selected nodes.
+
+    Retrieves full docstrings, signatures, and logic skeletons from Neo4j 
+    for the IDs chosen in the filtering stage.
+    """
     if not state["selected_ids"]:
         return {"retrieved_contexts": ["No relevant nodes found."]}
         
@@ -139,7 +169,6 @@ def fetch_details_node(state: AgentState):
     nodes = retriever.get_nodes_by_ids(state["selected_ids"])
     retriever.close()
     
-    # We use the existing compress_subgraph_context logic to format the full content
     formatted_context = compress_subgraph_context(
         "selected_context",
         state["query"],
@@ -154,7 +183,11 @@ def fetch_details_node(state: AgentState):
     return {"retrieved_contexts": [formatted_context]}
 
 def synthesize_answer_node(state: AgentState):
-    """Node to synthesize the final answer from fetched details."""
+    """
+    Node to synthesize the final answer from fetched details.
+
+    Combines the rich technical context into a final grounded response.
+    """
     llm = get_llm(temperature=0, json_mode=False)
     
     context = "\n\n".join(state["retrieved_contexts"])
@@ -193,14 +226,12 @@ def build_agent_graph():
     """Builds the LangGraph for the Graph Hub Agent."""
     workflow = StateGraph(AgentState)
     
-    # Define nodes
     workflow.add_node("decompose", decompose_query_node)
     workflow.add_node("discover", discover_candidates_node)
     workflow.add_node("filter", filter_candidates_node)
     workflow.add_node("fetch", fetch_details_node)
     workflow.add_node("synthesize", synthesize_answer_node)
     
-    # Define edges
     workflow.set_entry_point("decompose")
     workflow.add_conditional_edges("decompose", continue_to_discovery, ["discover"])
     workflow.add_edge("discover", "filter")
