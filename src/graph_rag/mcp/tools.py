@@ -112,7 +112,6 @@ async def execute_list_graphs(input_data: ListGraphsInput) -> list[dict]:
 async def execute_ingest(input_data: IngestInput) -> dict:
     args = get_mock_args()
     args.provider = input_data.provider
-    # Provide defaults to avoid errors
     args.batch_size = 32
     args.batch_delay_seconds = None
     args.max_text_length = 12000
@@ -124,27 +123,28 @@ async def execute_ingest(input_data: IngestInput) -> dict:
     
     # 1. Parse
     snapshot = parse_python_library(Path(input_data.source))
-    # Override snapshot metadata with requested graph_id parts
-    # graph_id is expected to be lib_name:version
-    if ":" in input_data.graph_id:
+    
+    # 2. Normalize and identify graph_id
+    if input_data.graph_id and ":" in input_data.graph_id:
         lib_name, version = input_data.graph_id.split(":", 1)
-        snapshot.metadata.name = lib_name
-        snapshot.metadata.version = version
-    else:
-        snapshot.metadata.name = input_data.graph_id
-        
-    # 2. Load
+        snapshot.metadata.name = lib_name.replace("_", "-").lower()
+        if version and version != "latest":
+            snapshot.metadata.version = version
+    elif input_data.graph_id:
+        snapshot.metadata.name = input_data.graph_id.replace("_", "-").lower()
+
+    # 3. Load
     load_result = load_snapshot_to_neo4j(snapshot, args)
     
     # Register in available_graphs
-    register_graph_in_config(snapshot.metadata.name, snapshot.metadata.version or "unversioned")
+    register_graph_in_config(snapshot.metadata.name, snapshot.metadata.version or "unknown")
     
-    # 3. Embed
+    # 4. Embed
     embed_result = embed_graph(load_result["graph_id"], args)
     
     return {
         "status": "ok",
         "nodes_created": load_result.get("nodes_created", 0),
-        "graph_id": load_result.get("graph_id", input_data.graph_id)
+        "graph_id": load_result.get("graph_id")
     }
 

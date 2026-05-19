@@ -29,6 +29,7 @@ def load_available_graphs(path: str = "available_graphs.yaml") -> List[dict]:
 
 def register_graph_in_config(name: str, version: str, path: str = "available_graphs.yaml"):
     """Registers or updates a graph in the available_graphs.yaml file."""
+    name = name.replace("_", "-").lower()
     graphs = load_available_graphs(path)
     
     found = False
@@ -62,6 +63,12 @@ class QueryDecomposer:
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert at decomposing complex technical queries into structured sub-queries for a Graph-based RAG system.
 Your goal is to break down the user's query into smaller, targeted searches that can be performed against specific library graphs.
+
+### QUERY STYLE RULES:
+- **Conciseness**: Keep sub-queries as short and factual as possible. Focus on key technical terms, class names, or specific behaviors.
+- **No Conversational Filler**: Avoid "How can I", "How to", "Tell me about", etc.
+- **No Questions**: Do not use question marks.
+- **Examples**: Instead of "How can I implement a specific feature?", use "implement [feature_name]" or "[entity_name] usage".
 
 CRITICAL RULE: You MUST ONLY use libraries that are physically present in the Graph Hub.
 Available libraries:

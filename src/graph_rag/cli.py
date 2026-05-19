@@ -123,7 +123,9 @@ def run_load(args: argparse.Namespace) -> None:
     snapshot = load_snapshot_from_args(args)
     result = load_snapshot_to_neo4j(snapshot, args)
     print_load_result(result, args.database)
-    register_graph_in_config(snapshot.metadata.name, snapshot.metadata.version or "unversioned")
+    name = snapshot.metadata.name.replace("_", "-").lower()
+    version = snapshot.metadata.version or "unknown"
+    register_graph_in_config(name, version)
 
 
 def run_embed(args: argparse.Namespace) -> None:
@@ -148,7 +150,9 @@ def run_ingest(args: argparse.Namespace) -> None:
     load_result = load_snapshot_to_neo4j(snapshot, args)
     print_load_result(load_result, args.database)
     
-    register_graph_in_config(snapshot.metadata.name, snapshot.metadata.version or "unversioned")
+    name = snapshot.metadata.name.replace("_", "-").lower()
+    version = snapshot.metadata.version or "unknown"
+    register_graph_in_config(name, version)
 
     if args.skip_embed:
         return

@@ -402,8 +402,9 @@ class Neo4jGraphLoader:
 
 
 def build_graph_id(snapshot: LibrarySnapshot) -> str:
-    version = snapshot.metadata.version or "unversioned"
-    return f"{snapshot.metadata.name}:{version}"
+    name = snapshot.metadata.name.replace("_", "-").lower()
+    version = snapshot.metadata.version or "unknown"
+    return f"{name}:{version}"
 
 
 def module_graph_id(graph_id: str, module_name: str) -> str:

@@ -4,8 +4,8 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 import mcp.types as types
 
-from .schemas import RetrieveInput, ChatInput, ListGraphsInput, IngestInput
-from .tools import execute_retrieve, execute_chat, execute_list_graphs, execute_ingest
+from .schemas import RetrieveInput, ChatInput, ListGraphsInput
+from .tools import execute_retrieve, execute_chat, execute_list_graphs
 
 server = Server("graphrag-hub")
 
@@ -14,23 +14,18 @@ async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="graphrag_retrieve",
-            description="Search the knowledge graph for API details about a function, class, or module.",
+            description="Search the knowledge graph for API details. Provide a concise, factual query focusing on technical names, patterns, or behaviors (e.g., 'class definition', 'method usage', or 'error handling') without conversational filler.",
             inputSchema=RetrieveInput.model_json_schema()
         ),
         types.Tool(
             name="graphrag_chat",
-            description="Ask a multi-hop question answered by the LangGraph agent across the knowledge graph.",
+            description="Ask a multi-hop question about indexed libraries. Provide a concise, factual query summarizing the technical goal (e.g., 'data processing pipeline' or 'authentication flow') without conversational filler or question marks.",
             inputSchema=ChatInput.model_json_schema()
         ),
         types.Tool(
             name="graphrag_list_graphs",
             description="List all indexed libraries with their versions and status.",
             inputSchema=ListGraphsInput.model_json_schema()
-        ),
-        types.Tool(
-            name="graphrag_ingest",
-            description="Index a Python library into the knowledge graph. Provide a local path or pip package name.",
-            inputSchema=IngestInput.model_json_schema()
         )
     ]
 
@@ -49,11 +44,6 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent | type
     elif name == "graphrag_list_graphs":
         input_data = ListGraphsInput(**(arguments or {}))
         result = await execute_list_graphs(input_data)
-        return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
-    elif name == "graphrag_ingest":
-        input_data = IngestInput(**arguments)
-        result = await execute_ingest(input_data)
         return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
         
     else:

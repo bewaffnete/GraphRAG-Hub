@@ -156,5 +156,6 @@ out.json
 available_graphs.yaml
 .DS_Store
 TODO.md
+mcp_testing/
 # Logs
 *.log

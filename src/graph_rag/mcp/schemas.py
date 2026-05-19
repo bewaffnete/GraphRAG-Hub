@@ -2,12 +2,12 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 class RetrieveInput(BaseModel):
-    query: str = Field(..., description="Natural language question")
+    query: str = Field(..., description="Concise, factual query targeting specific entities or logic (e.g. 'class definition')")
     graph_id: Optional[str] = Field(default=None, description="e.g. 'pandas:2.2.0'; if omitted, search all graphs")
     top_k: int = Field(default=5, description="Number of results to retrieve")
 
 class ChatInput(BaseModel):
-    query: str = Field(..., description="Multi-hop question for the LangGraph agent")
+    query: str = Field(..., description="Concise technical statement (e.g. 'implement data processing')")
     graph_id: Optional[str] = Field(default=None, description="Optional graph_id to scope the search")
 
 class ListGraphsInput(BaseModel):
