@@ -652,9 +652,14 @@ def compress_subgraph_context(
         "",
         "Top matches:",
     ]
+    seen_match_lines: set[str] = set()
     for seed in seeds[:max_entities]:
         label = seed.labels[0] if seed.labels else "Node"
-        lines.append(f"- [{label}] {seed.name or seed.graph_id} (score={seed.score:.3f})")
+        line = f"- [{label}] {seed.name or seed.graph_id} (score={seed.score:.3f})"
+        if line in seen_match_lines:
+            continue
+        seen_match_lines.add(line)
+        lines.append(line)
 
     implementation_sections = format_implementation_sections(nodes, max_entities=max_entities)
     if implementation_sections:
@@ -671,11 +676,14 @@ def compress_subgraph_context(
 def format_implementation_sections(nodes: list[RetrievedNode], *, max_entities: int) -> list[str]:
     """Sort and format implementation blocks for a list of nodes."""
     sections: list[str] = []
+    seen_blocks: set[str] = set()
     prioritized = sorted(nodes, key=_node_priority)
     for node in prioritized[:max_entities]:
         label = node.labels[0] if node.labels else "Node"
         block = format_node_implementation(node, label)
-        if block:
+        block_text = "\n".join(block).strip()
+        if block and block_text and block_text not in seen_blocks:
+            seen_blocks.add(block_text)
             sections.extend(block)
     return sections
 

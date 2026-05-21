@@ -78,10 +78,11 @@ The fastest way to get started is using Docker Compose. This spins up Neo4j and 
 ```bash
 git clone https://github.com/bewaffnete/GraphRAG-Hub.git
 cd GraphRAG-Hub
-cp .env.example .env
-# Optional: fill in OpenAI/Gemini keys if not using Ollama
-docker compose up -d
+pip install -e ".[cli]"
+graph-rag setup
 ```
+
+The setup wizard auto-detects nearby virtual environments, generates `.env`, chooses sane defaults for Neo4j and embeddings, and can boot `docker compose up -d` for you.
 
 ### 2. Ingest a library
 To index a project, place it in the `repos/` folder and run the ingest command:
@@ -184,7 +185,7 @@ The **LangGraph agent** then decomposes your query into sub-questions, retrieves
 |---|---|
 | Graph DB | [Neo4j](https://neo4j.com/) |
 | Agent Orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) |
-| LLM Providers | OpenAI · Google Gemini · Ollama |
+| LLM Providers | Ollama |
 | Embeddings | OpenAI · Gemini · Ollama |
 | CLI | [Rich](https://github.com/Textualize/rich) · [Questionary](https://github.com/tmbo/questionary) |
 | Language | Python 3.11+ |

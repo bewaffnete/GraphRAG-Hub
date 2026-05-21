@@ -13,6 +13,35 @@ from .embedding_indexer import EmbeddingConfig, extract_summary
 from .llm import get_llm
 from langchain_core.messages import HumanMessage, SystemMessage
 
+
+def dedupe_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate candidate nodes by id while preserving useful summaries."""
+    unique: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        candidate_id = str(candidate.get("id") or "").strip()
+        if not candidate_id:
+            continue
+        existing = unique.get(candidate_id)
+        if existing is None:
+            unique[candidate_id] = dict(candidate)
+            continue
+        if not existing.get("summary") and candidate.get("summary"):
+            existing["summary"] = candidate["summary"]
+    return list(unique.values())
+
+
+def dedupe_ids(values: list[str]) -> list[str]:
+    """Deduplicate ids while preserving order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = str(value).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
 class AgentState(TypedDict):
     """
     The state maintained throughout the agentic workflow.
@@ -97,8 +126,8 @@ def filter_candidates_node(state: AgentState):
     that is truly critical for answering the query.
     """
     llm = get_llm(temperature=0, json_mode=True)
-    
-    candidates_str = json.dumps(state["candidates"], indent=2, ensure_ascii=False)
+    unique_candidates = dedupe_candidates(state["candidates"])
+    candidates_str = json.dumps(unique_candidates, indent=2, ensure_ascii=False)
     
     prompt = f"""You are an expert technical auditor tasked with selecting the most relevant code entities for a RAG system.
 Given a user query and a list of candidate entities (Classes, Methods, Modules), identify the ones that are CRITICAL or highly supportive for answering the query.
@@ -136,13 +165,13 @@ Example:
         content = content.strip()
         
         data = json.loads(content)
-        selected_ids = data.get("selected_ids", [])
+        selected_ids = dedupe_ids(data.get("selected_ids", []))
     except Exception as e:
         print(f"[Agent] JSON parse error: {e}. Raw content: {response.content}")
         selected_ids = []
-        
-    print(f"\n[Agent] Selected {len(selected_ids)} nodes out of {len(state['candidates'])} candidates.")
-    return {"selected_ids": selected_ids}
+
+    print(f"\n[Agent] Selected {len(selected_ids)} nodes out of {len(unique_candidates)} candidates.")
+    return {"selected_ids": selected_ids, "candidates": unique_candidates}
 
 def fetch_details_node(state: AgentState):
     """
@@ -151,7 +180,8 @@ def fetch_details_node(state: AgentState):
     Retrieves full docstrings, signatures, and logic skeletons from Neo4j 
     for the IDs chosen in the filtering stage.
     """
-    if not state["selected_ids"]:
+    selected_ids = dedupe_ids(state["selected_ids"])
+    if not selected_ids:
         return {"retrieved_contexts": ["No relevant nodes found."]}
         
     neo4j_config = Neo4jConfig(
@@ -166,7 +196,7 @@ def fetch_details_node(state: AgentState):
     )
     
     retriever = Neo4jGraphRetriever(neo4j_config, embedding_config)
-    nodes = retriever.get_nodes_by_ids(state["selected_ids"])
+    nodes = retriever.get_nodes_by_ids(selected_ids)
     retriever.close()
     
     formatted_context = compress_subgraph_context(
@@ -180,7 +210,7 @@ def fetch_details_node(state: AgentState):
     )
     
     print(f"[Agent] Fetched full content for selected nodes ({len(formatted_context)} chars).")
-    return {"retrieved_contexts": [formatted_context]}
+    return {"retrieved_contexts": [formatted_context], "selected_ids": selected_ids}
 
 def synthesize_answer_node(state: AgentState):
     """

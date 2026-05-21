@@ -6,14 +6,14 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 import mcp.types as types
 
-from .schemas import RetrieveInput, ChatInput, ListGraphsInput
-from .tools import execute_retrieve, execute_chat, execute_list_graphs
+from .schemas import RetrieveInput, ListGraphsInput
+from .tools import execute_retrieve, execute_list_graphs
 
 server = Server("graphrag-hub")
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
-    """List available MCP tools for graph retrieval and chat."""
+    """List available MCP tools for graph retrieval and indexed library discovery."""
     return [
         types.Tool(
             name="graphrag_retrieve",
@@ -21,13 +21,8 @@ async def list_tools() -> list[types.Tool]:
             inputSchema=RetrieveInput.model_json_schema()
         ),
         types.Tool(
-            name="graphrag_chat",
-            description="Ask a multi-hop question about indexed libraries. Provide a concise, factual query summarizing the technical goal (e.g., 'data processing pipeline' or 'authentication flow') without conversational filler or question marks.",
-            inputSchema=ChatInput.model_json_schema()
-        ),
-        types.Tool(
             name="graphrag_list_graphs",
-            description="List all indexed libraries with their versions and status.",
+            description="List indexed libraries by name with their available graph ids.",
             inputSchema=ListGraphsInput.model_json_schema()
         )
     ]
@@ -39,17 +34,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent | type
         input_data = RetrieveInput(**arguments)
         result = await execute_retrieve(input_data)
         return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
-    elif name == "graphrag_chat":
-        input_data = ChatInput(**arguments)
-        result = await execute_chat(input_data)
-        return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
+
     elif name == "graphrag_list_graphs":
         input_data = ListGraphsInput(**(arguments or {}))
         result = await execute_list_graphs(input_data)
         return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
+
     else:
         raise ValueError(f"Unknown tool: {name}")
 

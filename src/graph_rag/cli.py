@@ -246,7 +246,9 @@ def run_setup(args: argparse.Namespace) -> None:
     Args:
         args (argparse.Namespace): Parsed CLI arguments.
     """
-    interactive_main()
+    from .config_ui import run_setup_wizard
+
+    run_setup_wizard()
 
 
 def load_snapshot_from_args(args: argparse.Namespace) -> LibrarySnapshot:
@@ -404,7 +406,7 @@ def interactive_main() -> None:
     from rich.panel import Panel
     from rich.markdown import Markdown
     from dotenv import load_dotenv
-    from .config_ui import print_config_status, setup_neo4j_interactive, setup_embedding_interactive
+    from .config_ui import print_config_status
 
     console = Console()
 
@@ -416,11 +418,10 @@ def interactive_main() -> None:
         action = questionary.select(
             "What would you like to do?",
             choices=[
+                "Run setup wizard",
                 "Ingest a local repository",
                 "Search (Retrieve) from Graph Hub",
                 "Agentic Chat (Decomposition + Synthesis)",
-                "Configure Neo4j Database",
-                "Configure Embedding Provider",
                 "Exit"
             ]
         ).ask()
@@ -428,14 +429,10 @@ def interactive_main() -> None:
         if action == "Exit" or action is None:
             break
 
-        if action == "Configure Neo4j Database":
-            setup_neo4j_interactive()
-            console.print("\n[cyan]Press Enter to return to main menu...[/cyan]")
-            input()
-            continue
+        if action == "Run setup wizard":
+            from .config_ui import run_setup_wizard
 
-        if action == "Configure Embedding Provider":
-            setup_embedding_interactive()
+            run_setup_wizard()
             console.print("\n[cyan]Press Enter to return to main menu...[/cyan]")
             input()
             continue

@@ -186,8 +186,12 @@ class OllamaEmbeddingProvider:
             method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with request.urlopen(req) as response:  # noqa: S310
-            data = json.loads(response.read().decode("utf-8"))
+        try:
+            with request.urlopen(req) as response:  # noqa: S310
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Ollama at {self.base_url}. Ensure Ollama is running and OLLAMA_BASE_URL is correct. Error: {e}") from e
+
         embeddings = data.get("embeddings")
         if not embeddings:
             raise RuntimeError("Ollama API returned no embeddings.")
