@@ -158,6 +158,9 @@ def run_ingest(args: argparse.Namespace) -> None:
             return
         args.path = path
 
+    if args.path and isinstance(args.path, str):
+        args.path = args.path.strip()
+
     snapshot = parse_python_library(Path(args.path))
     if args.snapshot_output:
         Path(args.snapshot_output).write_text(snapshot.to_json(), encoding="utf-8")
@@ -250,7 +253,10 @@ def load_snapshot_from_args(args: argparse.Namespace) -> LibrarySnapshot:
     """Helper to load a LibrarySnapshot from JSON or by parsing a path."""
     if getattr(args, "snapshot", None):
         return LibrarySnapshot.from_json_file(args.snapshot)
-    return parse_python_library(Path(args.path))
+    path = args.path
+    if path and isinstance(path, str):
+        path = path.strip()
+    return parse_python_library(Path(path))
 
 
 def load_snapshot_to_neo4j(snapshot: LibrarySnapshot, args: argparse.Namespace) -> dict:

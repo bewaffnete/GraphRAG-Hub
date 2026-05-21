@@ -39,6 +39,10 @@ class PythonLibraryParser:
         Args:
             root (str | Path): Path to the library's root directory.
         """
+        if isinstance(root, str):
+            root = root.strip()
+        elif isinstance(root, Path):
+            root = Path(str(root).strip())
         self.root = Path(root).resolve()
         self.source_roots = self._detect_source_roots()
         self.package_prefix = self._detect_package_prefix()

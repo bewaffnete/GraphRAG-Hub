@@ -138,8 +138,42 @@ def setup_embedding_interactive() -> None:
 
 
 def get_installed_packages() -> list[str]:
-    """Get a list of names of all installed pip packages."""
-    return sorted(list({dist.metadata["Name"] for dist in importlib.metadata.distributions() if dist.metadata["Name"]}))
+    """Get a list of names of all installed pip packages from container, venv metadata, and venv folders."""
+    packages = set()
+    # 1. From container's python environment
+    for dist in importlib.metadata.distributions():
+        if dist.metadata and dist.metadata["Name"]:
+            packages.add(dist.metadata["Name"])
+            
+    # 2. From mounted user venv
+    user_venv_path = "/user_venv"
+    if os.path.exists(user_venv_path):
+        try:
+            for dist in importlib.metadata.distributions(paths=[user_venv_path]):
+                if dist.metadata and dist.metadata["Name"]:
+                    packages.add(dist.metadata["Name"])
+        except Exception:
+            pass
+            
+        # 3. From physical folders in /user_venv (captures libraries without full pip metadata)
+        try:
+            ignored_prefixes = (".", "__")
+            ignored_suffixes = (".dist-info", ".egg-info", ".egg", "-info")
+            ignored_names = {"bin", "include", "share", "lib", "lib64"}
+            
+            for item in os.listdir(user_venv_path):
+                full_path = os.path.join(user_venv_path, item)
+                if os.path.isdir(full_path):
+                    if item.startswith(ignored_prefixes) or item.lower() in ignored_names:
+                        continue
+                    if any(item.endswith(suffix) for suffix in ignored_suffixes):
+                        continue
+                    packages.add(item)
+                    packages.add(item.replace("_", "-"))
+        except Exception:
+            pass
+            
+    return sorted(list(packages))
 
 
 def select_installed_package_interactive() -> str | None:
@@ -156,12 +190,51 @@ def select_installed_package_interactive() -> str | None:
     if not selection:
         return None
         
+    selection_stripped = selection.strip()
+    if selection_stripped.startswith("/") or selection_stripped.startswith("./") or selection_stripped.startswith("../"):
+        console.print(f"[green]Detected direct path input: {selection_stripped}[/green]")
+        return selection_stripped
+        
     if selection == "[Enter manual path]":
         path = questionary.path("Path to local repository or package root:", style=custom_style).ask()
-        return path
+        return path.strip() if path else path
         
     # Resolve physical path of the selected package
     console.print(f"[cyan]Resolving path for package '{selection}'...[/cyan]")
+    
+    # 1. Try to resolve in /user_venv first
+    user_venv_path = "/user_venv"
+    if os.path.exists(user_venv_path):
+        # A. Try direct physical folders first
+        candidate_names = [
+            selection,
+            selection.replace("-", "_"),
+            selection.replace("_", "-")
+        ]
+        for name in candidate_names:
+            candidate_path = os.path.join(user_venv_path, name)
+            if os.path.isdir(candidate_path):
+                console.print(f"[green]Resolved path in user venv (folder): {candidate_path}[/green]")
+                return candidate_path
+                
+        # B. Fallback to distribution metadata in user venv
+        try:
+            dists = [d for d in importlib.metadata.distributions(paths=[user_venv_path]) if d.metadata["Name"] == selection]
+            if dists:
+                dist = dists[0]
+                # Check top-level folder names using files list
+                if dist.files:
+                    for f in dist.files:
+                        parts = Path(f).parts
+                        if len(parts) > 1 and not parts[0].endswith(".dist-info") and not parts[0].endswith(".egg-info"):
+                            candidate_path = os.path.join(user_venv_path, parts[0])
+                            if os.path.isdir(candidate_path):
+                                console.print(f"[green]Resolved path in user venv (metadata): {candidate_path}[/green]")
+                                return candidate_path
+        except Exception:
+            pass
+
+    # 2. Fallback to container's importlib specs
     try:
         spec = importlib.util.find_spec(selection.replace("-", "_"))
         if spec and spec.submodule_search_locations:
@@ -177,7 +250,7 @@ def select_installed_package_interactive() -> str | None:
         
     console.print(f"[yellow]Could not automatically resolve physical path for '{selection}'.[/yellow]")
     path = questionary.path("Please enter path manually:", style=custom_style).ask()
-    return path
+    return path.strip() if path else path
 
 
 def print_config_status() -> None:
