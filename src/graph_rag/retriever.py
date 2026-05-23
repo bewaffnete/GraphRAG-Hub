@@ -288,17 +288,18 @@ class Neo4jGraphRetriever:
                 for record in records
             ]
 
-    def retrieve(self, query: str, config: RetrievalConfig) -> RetrievalResult:
+    def retrieve(self, query: str, config: RetrievalConfig | None = None) -> RetrievalResult:
         """
         Execute a full retrieval operation (route -> search -> expand -> compress).
 
         Args:
             query (str): User search query.
-            config (RetrievalConfig): Retrieval parameters and weights.
+            config (RetrievalConfig | None): Retrieval parameters and weights.
 
         Returns:
             RetrievalResult: Formatted result containing context nodes and text.
         """
+        config = config or RetrievalConfig()
         with self.driver.session(database=self.neo4j_config.database) as session:
             routes = [] if config.graph_id else self.route_graphs(session, query, config)
             
@@ -341,6 +342,7 @@ class Neo4jGraphRetriever:
     def _route_graphs_tx(tx, query: str, top_k: int) -> list[dict[str, Any]]:
         """Transactional implementation of graph routing."""
         if "library_name_fulltext" not in get_available_index_names(tx):
+            print(f"[DEBUG] library_name_fulltext index missing.")
             return []
         records = tx.run(
             """
@@ -355,7 +357,9 @@ class Neo4jGraphRetriever:
             search_query=query,
             limit=top_k,
         )
-        return [dict(record) for record in records]
+        results = [dict(record) for record in records]
+        print(f"[DEBUG] Routing query '{query}' returned: {results}")
+        return results
 
     def _hybrid_search(self, session, graph_id: str | None, query: str, query_vector: list[float], config: RetrievalConfig) -> list[RetrievedNode]:
         """Combine results from multiple search strategies."""
@@ -366,6 +370,8 @@ class Neo4jGraphRetriever:
             config.vector_k,
             config.include_labels,
         )
+        print(f"[DEBUG] vector_hits for graph_id={graph_id}: {len(vector_hits)}")
+        
         keyword_hits = session.execute_read(
             self._keyword_search_tx,
             graph_id,
@@ -373,6 +379,7 @@ class Neo4jGraphRetriever:
             config.keyword_k,
             config.include_labels,
         )
+        print(f"[DEBUG] keyword_hits for graph_id={graph_id}: {len(keyword_hits)}")
         if not vector_hits and not keyword_hits:
             keyword_hits = session.execute_read(
                 self._fallback_search_tx,
@@ -440,7 +447,10 @@ class Neo4jGraphRetriever:
         }
         available_indexes = get_available_index_names(tx)
         hits: list[RetrievedNode] = []
+        
+        filter_clause = "WHERE node.graph_id STARTS WITH $prefix" if graph_id else ""
         prefix = f"{graph_id}:" if graph_id else ""
+
         for label in include_labels:
             index_name = index_names.get(label)
             if not index_name or index_name not in available_indexes:
@@ -449,7 +459,7 @@ class Neo4jGraphRetriever:
                 f"""
                 CALL db.index.vector.queryNodes('{index_name}', $limit, $embedding)
                 YIELD node, score
-                WHERE node.graph_id STARTS WITH $prefix
+                {filter_clause}
                 RETURN node.graph_id AS graph_id,
                        labels(node) AS labels,
                        coalesce(node.qualname, node.name, node.file_path, node.code) AS name,
@@ -477,17 +487,29 @@ class Neo4jGraphRetriever:
     def _fallback_search_tx(tx, graph_id: str | None, query: str, top_k: int, include_labels: tuple[str, ...]) -> list[RetrievedNode]:
         """Perform simple CONTAINS search as a fallback when indexes are missing/fail."""
         labels = list(include_labels)
+        
+        filter_clause = "AND node.graph_id STARTS WITH $prefix" if graph_id else ""
         prefix = f"{graph_id}:" if graph_id else ""
+        
+        tokens = sorted(
+            {
+                token.lower()
+                for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", query)
+                if len(token) >= 3
+            }
+        )
+        if not tokens:
+            tokens = [query.lower()]
         records = tx.run(
-            """
+            f"""
             MATCH (node)
             WHERE any(label IN labels(node) WHERE label IN $labels)
-              AND node.graph_id STARTS WITH $prefix
-              AND (
-                toLower(coalesce(node.qualname, '')) CONTAINS $needle OR
-                toLower(coalesce(node.name, '')) CONTAINS $needle OR
-                toLower(coalesce(node.signature, '')) CONTAINS $needle OR
-                toLower(coalesce(node.docstring, '')) CONTAINS $needle
+              {filter_clause}
+              AND any(token IN $tokens WHERE
+                toLower(coalesce(node.qualname, '')) CONTAINS token OR
+                toLower(coalesce(node.name, '')) CONTAINS token OR
+                toLower(coalesce(node.signature, '')) CONTAINS token OR
+                toLower(coalesce(node.docstring, '')) CONTAINS token
               )
             RETURN node.graph_id AS graph_id,
                    labels(node) AS labels,
@@ -498,8 +520,21 @@ class Neo4jGraphRetriever:
             """,
             labels=labels,
             prefix=prefix,
-            needle=query.lower(),
+            tokens=tokens,
             limit=top_k * max(len(labels), 1),
+        )
+        return _dedupe_hits(
+            [
+                RetrievedNode(
+                    graph_id=record["graph_id"],
+                    labels=list(record["labels"]),
+                    name=record["name"],
+                    score=float(record["score"]),
+                    properties=sanitize_node_properties(list(record["labels"]), dict(record["properties"])),
+                )
+                for record in records
+            ],
+            top_k,
         )
         return _dedupe_hits(
             [
@@ -526,7 +561,10 @@ class Neo4jGraphRetriever:
         }
         available_indexes = get_available_index_names(tx)
         hits: list[RetrievedNode] = []
+        
+        filter_clause = "WHERE node.graph_id STARTS WITH $prefix" if graph_id else ""
         prefix = f"{graph_id}:" if graph_id else ""
+
         for label in include_labels:
             index_name = index_names.get(label)
             if not index_name or index_name not in available_indexes:
@@ -535,7 +573,7 @@ class Neo4jGraphRetriever:
                 f"""
                 CALL db.index.fulltext.queryNodes('{index_name}', $search_query, {{limit: $limit}})
                 YIELD node, score
-                WHERE node.graph_id STARTS WITH $prefix
+                {filter_clause}
                 RETURN node.graph_id AS graph_id,
                        labels(node) AS labels,
                        coalesce(node.qualname, node.name, node.file_path, node.code) AS name,

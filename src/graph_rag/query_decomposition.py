@@ -3,10 +3,12 @@
 from typing import List, Optional, Any
 import yaml
 import os
+from pathlib import Path
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from .llm import get_llm
+from .paths import resolve_available_graphs_path
 
 class SubQuery(BaseModel):
     """Structured representation of a single search task."""
@@ -21,35 +23,37 @@ class QueryDecompositionResult(BaseModel):
     reasoning: str = Field(description="Brief explanation of the decomposition logic")
     sub_queries: List[SubQuery] = Field(description="List of structured sub-queries")
 
-def load_available_graphs(path: str = "available_graphs.yaml") -> List[dict]:
+def load_available_graphs(path: str | None = None) -> List[dict]:
     """
     Load the list of available library graphs from a YAML configuration file.
 
     Args:
-        path (str): Path to the YAML file. Defaults to 'available_graphs.yaml'.
+        path (str | None): Optional explicit path to the YAML file.
 
     Returns:
         List[dict]: List of library metadata dictionaries.
     """
-    if not os.path.exists(path):
+    resolved_path = Path(path) if path else resolve_available_graphs_path()
+    if not resolved_path.exists():
         return []
-    with open(path, 'r') as f:
+    with open(resolved_path, 'r') as f:
         data = yaml.safe_load(f)
     if not data or 'graphs' not in data:
         return []
     return data.get('graphs', [])
 
-def register_graph_in_config(name: str, version: str, path: str = "available_graphs.yaml"):
+def register_graph_in_config(name: str, version: str, path: str | None = None):
     """
     Register or update a library graph in the YAML configuration file.
 
     Args:
         name (str): Library name.
         version (str): Library version.
-        path (str): Path to the configuration file.
+        path (str | None): Optional explicit path to the configuration file.
     """
     name = name.replace("_", "-").lower()
-    graphs = load_available_graphs(path)
+    resolved_path = Path(path) if path else resolve_available_graphs_path()
+    graphs = load_available_graphs(str(resolved_path))
     
     found = False
     for g in graphs:
@@ -69,10 +73,10 @@ def register_graph_in_config(name: str, version: str, path: str = "available_gra
             'status': 'active'
         })
         
-    with open(path, 'w') as f:
+    with open(resolved_path, 'w') as f:
         yaml.safe_dump({'graphs': graphs}, f, sort_keys=False)
     
-    print(f"[Config] Registered {name} (version {version}) in {path}")
+    print(f"[Config] Registered {name} (version {version}) in {resolved_path}")
 
 class QueryDecomposer:
     """

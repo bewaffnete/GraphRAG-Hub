@@ -1,6 +1,6 @@
 """LangGraph-based workflow for multi-stage graph retrieval and answer synthesis."""
 
-from typing import List, TypedDict, Annotated, Union, Any
+from typing import List, TypedDict, Annotated, Any
 import operator
 import os
 import json
@@ -60,6 +60,8 @@ class AgentState(TypedDict):
     selected_ids: List[str]
     retrieved_contexts: Annotated[List[str], operator.add]
     final_answer: str
+    graph_id: str | None
+    top_k: int
 
 def decompose_query_node(state: AgentState):
     """
@@ -70,15 +72,42 @@ def decompose_query_node(state: AgentState):
     """
     decomposer = QueryDecomposer()
     decomposition = decomposer.decompose(state["query"])
+    graph_id = state.get("graph_id")
+    if graph_id:
+        decomposition = QueryDecompositionResult(
+            reasoning=decomposition.reasoning,
+            sub_queries=[
+                SubQuery(
+                    id=sub_query.id,
+                    query=sub_query.query,
+                    libraries=[graph_id],
+                    entities=sub_query.entities,
+                    aspects=sub_query.aspects,
+                )
+                for sub_query in decomposition.sub_queries
+            ],
+        )
     return {"decomposition": decomposition, "candidates": [], "retrieved_contexts": [], "selected_ids": []}
 
-def discover_candidates_node(sub_query: SubQuery):
+class DiscoveryPayload(TypedDict):
+    """Payload sent to the discovery node for each decomposed sub-query."""
+
+    sub_query: SubQuery
+    graph_id: str | None
+    top_k: int
+
+
+def discover_candidates_node(payload: DiscoveryPayload):
     """
     Node to discover potential candidate nodes (metadata only).
 
     Performs a lightweight hybrid search for each sub-query to identify
     likely relevant entities without fetching full implementation details.
     """
+    sub_query = payload["sub_query"]
+    graph_id = payload.get("graph_id")
+    top_k = max(int(payload.get("top_k", 10)), 1)
+
     neo4j_config = Neo4jConfig(
         uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
         username=os.getenv("NEO4J_USERNAME", "neo4j"),
@@ -93,17 +122,24 @@ def discover_candidates_node(sub_query: SubQuery):
     retriever = Neo4jGraphRetriever(neo4j_config, embedding_config)
     
     candidates = []
-    libs = sub_query.libraries if sub_query.libraries else [None]
+    # If graph_id is provided, only search that graph.
+    # If not, search the suggested libraries AND always include a global search (None)
+    # to leverage the shared embedding space.
+    if graph_id:
+        libs = [graph_id]
+    else:
+        libs = list(sub_query.libraries) if sub_query.libraries else []
+        if None not in libs:
+            libs.append(None)
     
     for lib in libs:
         try:
-            config = RetrievalConfig(graph_id=lib, top_k=15, max_entities=10)
+            config = RetrievalConfig(graph_id=lib, top_k=top_k, max_entities=max(top_k, 10))
             with retriever.driver.session(database=retriever.neo4j_config.database) as session:
-                routes = [] if config.graph_id else retriever.route_graphs(session, sub_query.query, config)
-                graph_id = config.graph_id or (routes[0].graph_id if routes else None)
-                
+                # If lib is None, we don't have a specific graph_id. 
+                # The retriever handles graph_id=None as a global search.
                 query_vector = retriever.provider.embed([sub_query.query])[0]
-                seeds = retriever._hybrid_search(session, graph_id, sub_query.query, query_vector, config)
+                seeds = retriever._hybrid_search(session, lib, sub_query.query, query_vector, config)
                 
                 for seed in seeds:
                     candidates.append({
@@ -250,7 +286,17 @@ User Query: {state['query']}
 
 def continue_to_discovery(state: AgentState):
     """Router to send sub-queries for parallel discovery."""
-    return [Send("discover", sq) for sq in state["decomposition"].sub_queries]
+    return [
+        Send(
+            "discover",
+            {
+                "sub_query": sq,
+                "graph_id": state.get("graph_id"),
+                "top_k": state.get("top_k", 10),
+            },
+        )
+        for sq in state["decomposition"].sub_queries
+    ]
 
 def build_agent_graph():
     """Builds the LangGraph for the Graph Hub Agent."""

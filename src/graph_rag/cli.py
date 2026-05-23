@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import warnings
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 
 from .embedding_indexer import EMBEDDING_SCHEMA_VERSION, EmbeddingConfig, Neo4jEmbeddingIndexer
+from .env import load_app_env
 from .models import LibrarySnapshot
 from .neo4j_loader import Neo4jConfig, Neo4jGraphLoader
 from .parser import parse_python_library
@@ -27,6 +29,7 @@ KNOWN_OLLAMA_MODELS = ("embeddinggemma", "qwen3-embedding", "all-minilm")
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the Graph RAG CLI."""
+    load_app_env()
     parser = argparse.ArgumentParser(description="Graph RAG pipeline for parsing, loading, embedding, and retrieval.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -374,14 +377,7 @@ def print_load_result(result: dict, database: str) -> None:
     print(f"Loaded graph_id={result['graph_id']} into {database}")
     print("Counts:", ", ".join(f"{key}={value}" for key, value in result.items() if key != "graph_id"))
 
-
-import sys
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+load_app_env()
 
 def get_available_graphs(uri: str, username: str, password: str | None, database: str) -> list[str]:
     """Fetch a list of all library graph IDs currently in Neo4j."""
@@ -405,13 +401,12 @@ def interactive_main() -> None:
     from rich.console import Console
     from rich.panel import Panel
     from rich.markdown import Markdown
-    from dotenv import load_dotenv
     from .config_ui import print_config_status
 
     console = Console()
 
     while True:
-        load_dotenv()
+        load_app_env()
         console.print(Panel.fit("[bold cyan]Welcome to Graph RAG Interactive CLI[/bold cyan]"))
         print_config_status()
 

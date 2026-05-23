@@ -15,9 +15,11 @@ from typing import Callable
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from .env import load_app_env
+
 try:
     import questionary
-    from dotenv import load_dotenv, set_key
+    from dotenv import set_key
     from questionary import Style
     from rich.console import Console
     from rich.panel import Panel
@@ -546,7 +548,7 @@ def bootstrap_docker_services(diagnostics: SetupDiagnostics, env_config: dict[st
 
 def run_setup_wizard(repo_root: Path | None = None) -> None:
     """Run the frictionless onboarding flow described in TODO.md."""
-    load_dotenv()
+    load_app_env()
     diagnostics = run_host_diagnostics(repo_root)
 
     console.print(Panel.fit("[bold cyan]GraphRAG-Hub Setup Wizard[/bold cyan]"))
@@ -727,7 +729,7 @@ def select_installed_package_interactive() -> str | None:
 
 def print_config_status() -> None:
     """Print the current Graph RAG configuration in a table."""
-    load_dotenv()
+    load_app_env()
     table = Table(show_header=False, box=None)
     table.add_column("Key", style="cyan")
     table.add_column("Value", style="green")

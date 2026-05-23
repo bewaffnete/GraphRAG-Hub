@@ -160,5 +160,6 @@ mcp_testing/
 AGENT.md
 data/
 repos/
+ARCHITECTURE.md
 # Logs
 *.log
