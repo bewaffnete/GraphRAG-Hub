@@ -1,17 +1,15 @@
 """Implementation logic for MCP tools, bridging to Graph RAG core functionality."""
 
 import os
-from types import SimpleNamespace
 import yaml
 
 from .schemas import RetrieveInput, ListGraphsInput
 
-from graph_rag.agent_workflow import build_agent_graph
-from graph_rag.cli import build_embedding_config, build_neo4j_config
+from graph_rag.embedding_indexer import EmbeddingConfig
 from graph_rag.env import load_app_env
 from graph_rag.neo4j_loader import Neo4jConfig
 from graph_rag.retriever import GraphDatabase
-from graph_rag.retriever import Neo4jGraphRetriever, RetrievalConfig, _public_node_payload
+from graph_rag.retriever import Neo4jGraphRetriever, RetrievalConfig
 from graph_rag.paths import resolve_available_graphs_path
 
 load_app_env()
@@ -54,27 +52,27 @@ def dedupe_ids(values: list[str]) -> list[str]:
 
 
 async def execute_retrieve(input_data: RetrieveInput) -> list[dict]:
-    """Execute direct deterministic retrieval, delegating intelligence to the caller."""
+    """Execute deterministic retrieval and return graph evidence for the caller to reason over."""
     direct_result = _execute_direct_retrieve(input_data)
     if direct_result is None:
         return [{
             "query": input_data.query,
-            "answer": "No relevant nodes found.",
+            "answer": "No graph evidence could be retrieved.",
             "context": "",
             "sources": [],
             "top_matches": [],
             "candidate_count": 0,
             "selected_count": 0,
             "graph_id": input_data.graph_id,
+            "routed_graphs": [],
         }]
     return [direct_result]
 
 
 def _execute_direct_retrieve(input_data: RetrieveInput) -> dict | None:
-    """Fallback to deterministic retrieval when agentic discovery returns nothing."""
-    args = _build_runtime_args()
-    neo4j_config = build_neo4j_config(args)
-    embedding_config = build_embedding_config(args, query_mode=True)
+    """Run graph retrieval without invoking an internal LLM."""
+    neo4j_config = _build_neo4j_config()
+    embedding_config = _build_embedding_config()
     retrieval_config = RetrievalConfig(
         graph_id=input_data.graph_id,
         top_k=max(input_data.top_k, 1),
@@ -88,14 +86,16 @@ def _execute_direct_retrieve(input_data: RetrieveInput) -> dict | None:
         public_boost=1.25,
         private_penalty=0.45,
     )
-    retriever = Neo4jGraphRetriever(neo4j_config, embedding_config)
+    retriever = None
     try:
+        retriever = Neo4jGraphRetriever(neo4j_config, embedding_config)
         retrieved = retriever.retrieve(input_data.query, retrieval_config)
     except Exception as e:
-        print(f"Direct retrieval fallback failed: {e}")
+        print(f"Direct retrieval failed: {e}")
         return None
     finally:
-        retriever.close()
+        if retriever is not None:
+            retriever.close()
 
     top_matches = prioritize_top_matches(
         [
@@ -109,39 +109,46 @@ def _execute_direct_retrieve(input_data: RetrieveInput) -> dict | None:
         ]
     )
     selected_ids = dedupe_ids([node.graph_id for node in retrieved.nodes])
-    answer = (
-        "Retrieved relevant implementation context directly from the graph."
+    summary = (
+        "Retrieved deterministic graph evidence. Use top_matches and context to choose the useful nodes."
         if retrieved.seeds
         else "No relevant nodes found."
     )
     return {
-        "final_answer": answer,
-        "retrieved_contexts": [retrieved.compressed_context],
-        "selected_ids": selected_ids,
-        "candidates": [
-            {
-                "id": node_payload["graph_id"],
-                "name": node_payload["name"],
-                "type": node_payload["labels"][0] if node_payload["labels"] else "Unknown",
-                "summary": str(node_payload["properties"].get("docstring") or "").strip(),
-            }
-            for node_payload in (_public_node_payload(node) for node in retrieved.seeds)
-        ],
+        "query": input_data.query,
+        "answer": summary,
+        "context": retrieved.compressed_context,
+        "sources": selected_ids,
+        "top_matches": top_matches,
+        "candidate_count": len(retrieved.seeds),
+        "selected_count": len(selected_ids),
+        "graph_id": retrieved.graph_id,
+        "routed_graphs": retrieved.routed_graphs,
     }
 
 
-def _build_runtime_args() -> SimpleNamespace:
-    """Create a minimal args namespace so MCP uses the same env-driven config as the CLI."""
-    provider = os.getenv("EMBEDDING_PROVIDER", "hash")
-    return SimpleNamespace(
+def _build_neo4j_config() -> Neo4jConfig:
+    """Create Neo4j config directly from the MCP process environment."""
+    return Neo4jConfig(
         uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
         username=os.getenv("NEO4J_USERNAME", "neo4j"),
         password=os.getenv("NEO4J_PASSWORD"),
         database=os.getenv("NEO4J_DATABASE", "neo4j"),
+        create_vector_indexes=True,
+        vector_dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "256")),
+        vector_similarity=os.getenv("EMBEDDING_SIMILARITY", "cosine"),
+    )
+
+
+def _build_embedding_config() -> EmbeddingConfig:
+    """Create embedding config directly from the MCP process environment."""
+    provider = os.getenv("EMBEDDING_PROVIDER", "hash")
+    model = _resolve_embedding_model(provider, os.getenv("EMBEDDING_MODEL", "hash-embedding-v1"))
+    return EmbeddingConfig(
         provider=provider,
-        model=os.getenv("EMBEDDING_MODEL", "hash-embedding-v1"),
+        model=model,
         dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "256")),
-        similarity="cosine",
+        similarity=os.getenv("EMBEDDING_SIMILARITY", "cosine"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
@@ -149,11 +156,20 @@ def _build_runtime_args() -> SimpleNamespace:
         gemini_task_type=os.getenv("GEMINI_QUERY_TASK_TYPE", "RETRIEVAL_QUERY"),
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         ollama_truncate=True,
-        skip_modules=False,
-        skip_classes=False,
-        skip_functions=False,
-        skip_examples=False,
     )
+
+
+def _resolve_embedding_model(provider: str, model: str) -> str:
+    """Keep MCP defaults aligned with CLI embedding defaults without importing CLI."""
+    if model != "hash-embedding-v1":
+        return model
+    if provider == "gemini":
+        return "gemini-embedding-001"
+    if provider == "openai":
+        return "text-embedding-3-large"
+    if provider == "ollama":
+        return "embeddinggemma"
+    return model
 
 
 async def execute_list_graphs(input_data: ListGraphsInput) -> list[dict]:

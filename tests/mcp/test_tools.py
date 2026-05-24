@@ -1,108 +1,130 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from graph_rag.mcp.schemas import RetrieveInput, ListGraphsInput
 from graph_rag.mcp.tools import execute_retrieve, execute_list_graphs
 from graph_rag.query_decomposition import register_graph_in_config, load_available_graphs
+from graph_rag.retriever import RetrievedNode, RetrievalResult
+
+
+def _retrieval_result() -> RetrievalResult:
+    seeds = [
+        RetrievedNode(
+            graph_id="test:1.0:TestClass",
+            labels=["Class"],
+            name="TestClass",
+            score=1.0,
+            properties={"docstring": "Test docstring"},
+        ),
+        RetrievedNode(
+            graph_id="test:1.0:Noise",
+            labels=["Example"],
+            name="Noise",
+            score=0.3,
+            properties={"docstring": "Irrelevant"},
+        ),
+        RetrievedNode(
+            graph_id="test:1.0:TestClass",
+            labels=["Class"],
+            name="TestClass",
+            score=0.9,
+            properties={"docstring": ""},
+        ),
+    ]
+    nodes = [
+        seeds[0],
+        RetrievedNode(
+            graph_id="test:1.0:helper",
+            labels=["Function"],
+            name="helper",
+            score=0.7,
+            properties={"docstring": "Helper details"},
+        ),
+        seeds[0],
+    ]
+    return RetrievalResult(
+        query="test query",
+        graph_id="test:1.0",
+        routed_graphs=[],
+        seeds=seeds,
+        nodes=nodes,
+        edges=[],
+        compressed_context="Graph: test:1.0\nRelevant implementation:\n[Class] TestClass",
+    )
+
+
+class FakeRetriever:
+    last_config = None
+    closed = False
+
+    def __init__(self, neo4j_config, embedding_config):
+        self.neo4j_config = neo4j_config
+        self.embedding_config = embedding_config
+
+    def retrieve(self, query, config):
+        FakeRetriever.last_config = config
+        assert query == "test query"
+        return _retrieval_result()
+
+    def close(self):
+        FakeRetriever.closed = True
 
 @pytest.mark.asyncio
 async def test_execute_retrieve():
     input_data = RetrieveInput(query="test query", graph_id="test:1.0", top_k=5)
 
-    with patch("graph_rag.mcp.tools.build_agent_graph") as mock_build_agent:
-        mock_app = MagicMock()
-        mock_app.invoke.return_value = {
-            "final_answer": "Use snapshot.save_html('report.html').",
-            "retrieved_contexts": ["Graph: selected_context\nRelevant implementation:\n[Class] TestClass"],
-            "selected_ids": ["test:1.0:TestClass", "test:1.0:TestClass"],
-            "candidates": [
-                {
-                    "id": "test:1.0:TestClass",
-                    "name": "TestClass",
-                    "type": "Class",
-                    "summary": "Test docstring",
-                },
-                {
-                    "id": "test:1.0:Noise",
-                    "name": "Noise",
-                    "type": "Example",
-                    "summary": "Irrelevant",
-                },
-                {
-                    "id": "test:1.0:TestClass",
-                    "name": "TestClass",
-                    "type": "Class",
-                    "summary": "",
-                },
-            ],
-        }
-        mock_build_agent.return_value = mock_app
-
+    with patch("graph_rag.mcp.tools.Neo4jGraphRetriever", FakeRetriever):
         result = await execute_retrieve(input_data)
-
-        mock_app.invoke.assert_called_once_with(
-            {
-                "query": "test query",
-                "graph_id": "test:1.0",
-                "top_k": 5,
-                "candidates": [],
-                "selected_ids": [],
-                "retrieved_contexts": [],
-                "final_answer": "",
-            }
-        )
 
         assert len(result) == 1
         assert result[0]["query"] == "test query"
-        assert result[0]["answer"] == "Use snapshot.save_html('report.html')."
+        assert result[0]["answer"] == "Retrieved deterministic graph evidence. Use top_matches and context to choose the useful nodes."
         assert result[0]["graph_id"] == "test:1.0"
         assert "Relevant implementation" in result[0]["context"]
-        assert result[0]["sources"] == ["test:1.0:TestClass"]
+        assert result[0]["sources"] == ["test:1.0:TestClass", "test:1.0:helper"]
         assert result[0]["candidate_count"] == 3
-        assert result[0]["selected_count"] == 1
-        assert len(result[0]["top_matches"]) == 1
-        assert result[0]["top_matches"][0]["name"] == "TestClass"
-        assert result[0]["top_matches"][0]["type"] == "Class"
-        assert result[0]["top_matches"][0]["summary"] == "Test docstring"
-        assert result[0]["top_matches"][0]["id"] == "test:1.0:TestClass"
+        assert result[0]["selected_count"] == 2
+        assert result[0]["routed_graphs"] == []
+        assert result[0]["top_matches"] == [
+            {
+                "id": "test:1.0:TestClass",
+                "name": "TestClass",
+                "type": "Class",
+                "summary": "Test docstring",
+            },
+            {
+                "id": "test:1.0:Noise",
+                "name": "Noise",
+                "type": "Example",
+                "summary": "Irrelevant",
+            },
+        ]
+        assert FakeRetriever.last_config.graph_id == "test:1.0"
+        assert FakeRetriever.last_config.top_k == 5
+        assert FakeRetriever.closed is True
 
 
 @pytest.mark.asyncio
-async def test_execute_retrieve_falls_back_to_direct_retrieval_for_known_graph():
+async def test_execute_retrieve_returns_empty_result_when_direct_retrieval_fails():
     input_data = RetrieveInput(query="data drift report preset", graph_id="evidently:0.7.21", top_k=5)
 
-    with patch("graph_rag.mcp.tools.build_agent_graph") as mock_build_agent, \
-         patch("graph_rag.mcp.tools._execute_direct_retrieve") as mock_direct:
-        mock_app = MagicMock()
-        mock_app.invoke.return_value = {
-            "final_answer": "Based on the provided retrieved context, there is no information available.",
-            "retrieved_contexts": ["No relevant nodes found."],
-            "selected_ids": [],
-            "candidates": [],
-        }
-        mock_build_agent.return_value = mock_app
-        mock_direct.return_value = {
-            "final_answer": "Retrieved relevant implementation context directly from the graph.",
-            "retrieved_contexts": ["Graph: evidently:0.7.21\nTop matches:\n- [Class] DataDriftPreset"],
-            "selected_ids": ["evidently:0.7.21:DataDriftPreset"],
-            "candidates": [
-                {
-                    "id": "evidently:0.7.21:DataDriftPreset",
-                    "name": "DataDriftPreset",
-                    "type": "Class",
-                    "summary": "Preset for data drift reports.",
-                }
-            ],
-        }
-
+    with patch("graph_rag.mcp.tools._execute_direct_retrieve", return_value=None) as mock_direct:
         result = await execute_retrieve(input_data)
 
         mock_direct.assert_called_once_with(input_data)
-        assert result[0]["answer"] == "Retrieved relevant implementation context directly from the graph."
-        assert result[0]["sources"] == ["evidently:0.7.21:DataDriftPreset"]
-        assert result[0]["candidate_count"] == 1
-        assert result[0]["selected_count"] == 1
-        assert result[0]["top_matches"][0]["name"] == "DataDriftPreset"
+        assert result == [
+            {
+                "query": "data drift report preset",
+                "answer": "No graph evidence could be retrieved.",
+                "context": "",
+                "sources": [],
+                "top_matches": [],
+                "candidate_count": 0,
+                "selected_count": 0,
+                "graph_id": "evidently:0.7.21",
+                "routed_graphs": [],
+            }
+        ]
 
 @pytest.mark.asyncio
 async def test_execute_list_graphs(tmp_path):

@@ -17,7 +17,7 @@ async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="graphrag_retrieve",
-            description="Search the knowledge graph for API details. Provide a concise, factual query focusing on technical names, patterns, or behaviors (e.g., 'class definition', 'method usage', or 'error handling') without conversational filler.",
+            description="Search the knowledge graph and return deterministic evidence for the calling model to inspect. Provide a concise, factual query focusing on technical names, patterns, or behaviors (e.g., 'class definition', 'method usage', or 'error handling') without conversational filler.",
             inputSchema=RetrieveInput.model_json_schema()
         ),
         types.Tool(

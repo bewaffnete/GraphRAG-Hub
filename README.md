@@ -72,29 +72,56 @@ Beyond structure, each node is enriched with:
 
 ## ⚡ Quick Start (Docker)
 
-The fastest way to get started is using Docker Compose. This spins up Neo4j and the GraphRAG application.
+The fastest way to get started is with Docker Compose. This brings up Neo4j and the GraphRAG app container without needing a local Python install.
 
-### 1. Build and Run
+### 1. Clone the repository
 ```bash
 git clone https://github.com/bewaffnete/GraphRAG-Hub.git
 cd GraphRAG-Hub
-pip install -e ".[cli]"
-graph-rag setup
+mkdir -p repos
+cp .env.example .env
 ```
 
-The setup wizard auto-detects nearby virtual environments, generates `.env`, chooses sane defaults for Neo4j and embeddings, and can boot `docker compose up -d` for you.
+### 2. Configure `.env`
+At minimum, set these values in `.env`:
 
-### 2. Ingest a library
-To index a project, place it in the `repos/` folder and run the ingest command:
+```env
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your-strong-password
+VENV_LIBS_PATH=/absolute/path/to/your/site-packages-or-venv-lib
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+Notes:
+- `VENV_LIBS_PATH` is mounted into the container as `/user_venv` so the setup wizard and package resolver can inspect your installed libraries.
+- If you are not using host Ollama, adjust `OLLAMA_BASE_URL` accordingly.
+
+### 3. Build and start the stack
 ```bash
-# Example: Indexing a project located at ./repos/my-cool-lib
-docker compose exec graph-rag-app graph-rag ingest /repos/my-cool-lib
+docker compose up -d --build
 ```
 
-### 3. Ask questions via CLI
+This starts:
+- `neo4j` on `http://localhost:7474`
+- `graph-rag-app` as the application container
+
+Optional: if you want Ollama inside Docker instead of on the host:
+```bash
+docker compose --profile with-ollama up -d --build
+```
+
+### 4. Ingest a library
+Place the library you want to index inside `./repos`, then run:
+
+```bash
+# Example: ./repos/my-cool-lib on the host becomes /repos/my-cool-lib in the container
+docker compose exec graph-rag-app graph-rag ingest /repos/my-cool-lib --password "$NEO4J_PASSWORD"
+```
+
+### 5. Ask questions
 ```bash
 # Precise retrieval
-docker compose exec graph-rag-app graph-rag retrieve "How does the auth flow work?"
+docker compose exec graph-rag-app graph-rag retrieve "How does the auth flow work?" --password "$NEO4J_PASSWORD"
 
 # Agentic chat
 docker compose exec graph-rag-app graph-rag chat "Explain the relationship between Module and Class"
