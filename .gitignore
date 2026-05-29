@@ -13,3 +13,6 @@ DOCKER.md
 /src/graphrag_mcp.egg-info
 /test_mcp
 
+**/__pycache__/
+*.py[cod]
+.DS_Store
