@@ -11,7 +11,6 @@ Graph-RAG-MCP parses Python source code into a knowledge graph, then exposes it 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
  
 </div>
----
  
 ## ✨ Why Graph-RAG-MCP?
  
@@ -111,16 +110,16 @@ Graph-RAG-MCP follows **Clean Architecture** — each layer has one job and one 
  
 ```
 ┌─────────────────────────────────────────────┐
-│              Interfaces                      │
+│              Interfaces                     │
 │   MCP Server (AI tools)  │  Operator CLI    │
 ├─────────────────────────────────────────────┤
-│              Application                     │
+│              Application                    │
 │   IngestLibrary  │  RetrieveCandidates      │
 ├─────────────────────────────────────────────┤
-│              Domain                          │
+│              Domain                         │
 │   GraphNode · Library · Scoring policies    │
 ├─────────────────────────────────────────────┤
-│              Infrastructure                  │
+│              Infrastructure                 │
 │  Neo4j repo · AST parser · Embeddings · YAML│
 └─────────────────────────────────────────────┘
 ```
@@ -161,17 +160,7 @@ The CLI gives you a menu-driven interface for ingestion, graph management, and e
 ```bash
 pytest
 ```
- 
----
- 
-## 🗺️ Roadmap ideas
- 
-- [ ] Support for TypeScript / JavaScript AST parsing
-- [ ] GitHub Actions workflow for auto-ingesting library releases
-- [ ] Web UI for graph visualization
-- [ ] Multi-repo ingestion with cross-library relationship tracking
-Got an idea or found a bug? [Open an issue](https://github.com/your-repo/graph-rag-mcp/issues) — contributions are welcome.
- 
+
 ---
  
 ## 📄 License
