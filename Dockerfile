@@ -1,23 +1,14 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Copy all files needed for the build
-# We need pyproject.toml, README.md, and the src directory
-COPY pyproject.toml README.md ./
-COPY src/ ./src/
+COPY pyproject.toml ./
+COPY src ./src
 
-# Install the project and all its dependencies
-RUN pip install --no-cache-dir ".[all,mcp]"
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir .
 
-# Install the project itself in editable mode or just re-run install to ensure scripts are linked
-RUN pip install -e .
-
-ENTRYPOINT ["graph-rag-mcp"]
+CMD ["python", "-c", "import time; time.sleep(2147483647)"]

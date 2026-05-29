@@ -1,0 +1,2 @@
+"""Graph RAG MCP package."""
+

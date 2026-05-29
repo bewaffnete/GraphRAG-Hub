@@ -1,145 +1,62 @@
-# 🕸️ GraphRAG-Hub
-
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Neo4j](https://img.shields.io/badge/database-Neo4j-green.svg)](https://neo4j.com/)
-[![LangChain](https://img.shields.io/badge/framework-LangChain-orange.svg)](https://langchain.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-> **Your AI coding assistant is hallucinating the API.** GraphRAG-Hub fixes that.
-
+<div align="center">
+# 🧠 Graph-RAG-MCP
+ 
+**Give your AI assistant a precise, queryable map of any Python codebase.**
+ 
+Graph-RAG-MCP parses Python source code into a knowledge graph, then exposes it over the [Model Context Protocol](https://modelcontextprotocol.io/) — so Claude and other AI assistants can find exactly the right API symbol, docstring, or inheritance chain on the first try.
+ 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Neo4j](https://img.shields.io/badge/graph-Neo4j-008CC1.svg)](https://neo4j.com/)
+[![MCP](https://img.shields.io/badge/protocol-MCP-blueviolet.svg)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+ 
+</div>
 ---
-
-## The Problem
-
-Every AI coding assistant has a knowledge cutoff. Ask Copilot or Claude to write code using `pandas 2.x`, `LangChain 0.3`, or any library released in the last year — and you'll get confident, detailed, **wrong** answers.
-
-They're not lying. They just don't know what changed.
-
-**The standard fix — RAG over documentation — is too shallow.** Markdown docs miss deprecated methods, type signatures, exception chains, and call graphs. You get text. You need structure.
-
+ 
+## ✨ Why Graph-RAG-MCP?
+ 
+Standard RAG splits code into text chunks and searches by similarity — you get fragments, lose context, and the AI fills in the gaps with guesses. **Graph-RAG-MCP does it differently:**
+ 
+| Problem with naive RAG | Graph-RAG-MCP solution |
+|---|---|
+| Loses class/function relationships | Stores everything as a graph with typed edges |
+| Misses inheritance chains | Traverse "inherits from X" in a single query |
+| Buries docstrings in noise | Surgically extracts public API surface via AST |
+| Semantic drift on code symbols | Combines vector search *and* graph traversal |
+ 
+The result: your AI assistant retrieves **surgical, context-rich evidence** instead of vague text fragments.
+ 
 ---
-
-## The Solution
-
-GraphRAG-Hub parses any Python library directly from source using **AST analysis** and builds a **queryable knowledge graph** in Neo4j — not from docs, but from the actual code.
-
-```
-pandas 2.2.0  ──AST──▶  Graph  ──Hybrid Search──▶  LangGraph Agent  ──▶  Accurate Answer
-```
-
-Your AI assistant now knows **exactly** what exists, what's deprecated, what raises what exception, and how everything connects — for any library version you point it at.
-
----
-
-## Why AST beats documentation RAG
-
-| | Docs RAG | **GraphRAG-Hub** |
-|---|---|---|
-| Source of truth | Markdown text | Actual source code |
-| Deprecated methods | Often undocumented | Extracted from AST |
-| Type signatures | Partial / outdated | Complete, deterministic |
-| Call graphs | ❌ | ✅ |
-| Complexity metrics | ❌ | ✅ (cyclomatic, nesting) |
-| Multi-hop reasoning | ❌ | ✅ 2-hop graph traversal |
-| Indexing speed | Minutes | **Seconds** |
-
-> Research confirms: AST-derived graphs cover ~90% of code vs 64–69% for LLM-extracted approaches, and build in seconds vs hundreds of seconds. ([arxiv:2601.08773](https://arxiv.org/abs/2601.08773))
-
----
-
-## What Gets Extracted
-
-GraphRAG-Hub builds a rich, multi-layered graph from your library:
-
-```
-Library
- └── Module
-      ├── Class  ──[:INHERITS]──▶  Class
-      │    └── Function  ──[:HAS_PARAM]──▶  Parameter
-      │                  ──[:RETURNS]──▶    Type
-      │                  ──[:RAISES]──▶     Exception
-      │                  ──[:CALLS]──▶      Function
-      └── Function
-           └── Example
-```
-
-Beyond structure, each node is enriched with:
-- **Logic Skeleton** — control flow stripped of boilerplate, optimized for LLM context
-- **Complexity Metrics** — cyclomatic complexity, nesting depth, branch counts
-- **Call Graph** — who calls what, which constants are used
-
----
-
-## ⚡ Quick Start (Docker)
-
-The fastest way to get started is with Docker Compose. This brings up Neo4j and the GraphRAG app container without needing a local Python install.
-
-### 1. Clone the repository
+ 
+## 🚀 Quick Start
+ 
+### Prerequisites
+ 
+- Python 3.11+
+- Docker & Docker Compose
+- An embedding provider key: [Gemini](https://ai.google.dev/), [OpenAI](https://openai.com/), or a local [Ollama](https://ollama.com/) instance
+### 1 — Clone & configure
+ 
 ```bash
-git clone https://github.com/bewaffnete/GraphRAG-Hub.git
-cd GraphRAG-Hub
-mkdir -p repos
+git clone https://github.com/your-repo/graph-rag-mcp.git
+cd graph-rag-mcp
+ 
+# Copy the example env and fill in your credentials
 cp .env.example .env
 ```
-
-### 2. Configure `.env`
-At minimum, set these values in `.env`:
-
-```env
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your-strong-password
-VENV_LIBS_PATH=/absolute/path/to/your/site-packages-or-venv-lib
-OLLAMA_BASE_URL=http://host.docker.internal:11434
-```
-
-Notes:
-- `VENV_LIBS_PATH` is mounted into the container as `/user_venv` so the setup wizard and package resolver can inspect your installed libraries.
-- If you are not using host Ollama, adjust `OLLAMA_BASE_URL` accordingly.
-
-### 3. Build and start the stack
+ 
+### 2 — Start everything
+ 
 ```bash
-docker compose up -d --build
+./scripts/compose-up.sh
 ```
-
-This starts:
-- `neo4j` on `http://localhost:7474`
-- `graph-rag-app` as the application container
-
-Optional: if you want Ollama inside Docker instead of on the host:
-```bash
-docker compose --profile with-ollama up -d --build
-```
-
-### 4. Ingest a library
-Place the library you want to index inside `./repos`, then run:
-
-```bash
-# Example: ./repos/my-cool-lib on the host becomes /repos/my-cool-lib in the container
-docker compose exec graph-rag-app graph-rag ingest /repos/my-cool-lib --password "$NEO4J_PASSWORD"
-```
-
-### 5. Ask questions
-```bash
-# Precise retrieval
-docker compose exec graph-rag-app graph-rag retrieve "How does the auth flow work?" --password "$NEO4J_PASSWORD"
-
-# Agentic chat
-docker compose exec graph-rag-app graph-rag chat "Explain the relationship between Module and Class"
-```
-
----
-
-## 🛠️ Advanced Configuration
-
-### Ollama Setup (Local vs Docker)
-By default, the app looks for Ollama on your host (Mac) for best performance.
-- **Local Ollama (Mac):** Just ensure Ollama is running and `.env` has `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
-- **Docker Ollama:** Start with `--profile with-ollama` and set `OLLAMA_BASE_URL=http://ollama:11434`.
-
-### Agent Integration (MCP Server)
-GraphRAG-Hub includes an MCP server so your IDE (Claude Code, Cursor) can query the graph.
-
-**MCP Configuration:**
+ 
+This starts Neo4j and the Graph-RAG-MCP service in Docker. That's it — you're ready to ingest libraries.
+ 
+### 3 — Connect to Claude Desktop
+ 
+Add this to your `claude_desktop_config.json`:
+ 
 ```json
 {
   "mcpServers": {
@@ -150,81 +67,113 @@ GraphRAG-Hub includes an MCP server so your IDE (Claude Code, Cursor) can query 
   }
 }
 ```
-
+ 
+Restart Claude Desktop and the tools will appear automatically.
+ 
 ---
-
-## Hybrid Search: Four Signals, One Answer
-
-When you ask a question, GraphRAG-Hub doesn't just run a similarity search. It combines:
-
-1. **Full-text search** — exact keyword matches across names and docstrings
-2. **Vector embeddings** — semantic similarity (OpenAI / Gemini / Ollama)
-3. **BM25** — probabilistic relevance ranking
-4. **2-hop graph traversal** — follows relationships to surface connected context
-
-The **LangGraph agent** then decomposes your query into sub-questions, retrieves context from each signal, and synthesizes a grounded answer.
-
+ 
+## ⚙️ Configuration
+ 
+All settings live in your `.env` file:
+ 
+| Variable | Description | Default |
+|---|---|---|
+| `GRAPHRAG_NEO4J_URI` | Neo4j connection URI | `bolt://localhost:7687` |
+| `GRAPHRAG_EMBEDDING_PROVIDER` | `gemini` · `openai` · `ollama` · `hash` | `ollama` |
+| `VENV_LIBS_PATH` | Path to site-packages for ingestion | `./.docker/user_venv_empty` |
+ 
+> **Tip:** Use `hash` as the embedding provider for a zero-dependency local setup with no API keys required (lower semantic quality, great for testing).
+ 
 ---
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                     CLI (Rich)                      │
-└───────────────────────┬─────────────────────────────┘
-                        │
-              ┌─────────▼──────────┐
-              │      Parser        │  Python ast module
-              │  LibrarySnapshot   │  → classes, functions,
-              └─────────┬──────────┘    params, types, exceptions
-                        │
-              ┌─────────▼──────────┐
-              │      Enricher      │  Logic skeletons
-              │                    │  Complexity metrics
-              └─────────┬──────────┘  Call graphs
-                        │
-              ┌─────────▼──────────┐
-              │  Neo4j Loader      │  Idempotent upsert
-              │  (versioned)       │  graph_id = lib:version
-              └─────────┬──────────┘
-                        │
-              ┌─────────▼──────────┐
-              │     Indexer        │  Vector embeddings
-              │                    │  for docstrings +
-              └─────────┬──────────┘  logic skeletons
-                        │
-              ┌─────────▼──────────┐
-              │  Hybrid Retriever  │  FTS + Vector + BM25
-              │                    │  + 2-hop traversal
-              └─────────┬──────────┘
-                        │
-              ┌─────────▼──────────┐
-              │  LangGraph Agent   │  Query decomposition
-              │                    │  Multi-step retrieval
-              └────────────────────┘  Answer synthesis
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
+ 
+## 🛠️ MCP Tools Reference
+ 
+Once connected, your AI assistant has access to six tools:
+ 
+| Tool | What it does |
 |---|---|
-| Graph DB | [Neo4j](https://neo4j.com/) |
-| Agent Orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) |
-| LLM Providers | Ollama |
-| Embeddings | OpenAI · Gemini · Ollama |
-| CLI | [Rich](https://github.com/Textualize/rich) · [Questionary](https://github.com/tmbo/questionary) |
-| Language | Python 3.11+ |
-
+| `graphrag_list_graphs` | List all ingested libraries |
+| `graphrag_ingest_library` | Ingest a library from a local path or package name |
+| `graphrag_retrieve_candidates` | Semantic search across code symbols |
+| `graphrag_retrieve_details` | Get full docstrings, signatures & relationships for specific nodes |
+| `graphrag_rebuild_embeddings` | Rebuild vector embeddings for a graph |
+| `graphrag_health` | Check service and database connectivity |
+ 
+**Example flow:**
+1. `graphrag_ingest_library` → ingest `requests` or any local package
+2. `graphrag_retrieve_candidates` → "how do I send a POST with auth headers?"
+3. `graphrag_retrieve_details` → get the full `Session.request()` signature + docstring
 ---
-
-## Contributing
-
-Issues and PRs are welcome. If you're indexing a library and hit a parsing edge case, open an issue with the library name and version.
-
+ 
+## 🏗️ Architecture
+ 
+Graph-RAG-MCP follows **Clean Architecture** — each layer has one job and one direction of dependency.
+ 
+```
+┌─────────────────────────────────────────────┐
+│              Interfaces                      │
+│   MCP Server (AI tools)  │  Operator CLI    │
+├─────────────────────────────────────────────┤
+│              Application                     │
+│   IngestLibrary  │  RetrieveCandidates      │
+├─────────────────────────────────────────────┤
+│              Domain                          │
+│   GraphNode · Library · Scoring policies    │
+├─────────────────────────────────────────────┤
+│              Infrastructure                  │
+│  Neo4j repo · AST parser · Embeddings · YAML│
+└─────────────────────────────────────────────┘
+```
+ 
+**Key design decisions:**
+ 
+- **AST-first parsing** — only public symbols are extracted. Private implementation details never enter the graph.
+- **Neo4j for storage** — enables relationship queries impossible with flat vector stores (e.g. "all subclasses of `BaseModel`").
+- **Pluggable embeddings** — swap between Gemini, OpenAI, and Ollama without touching application logic.
 ---
-
-## License
-
+ 
+## 💻 Development Setup
+ 
+Prefer running natively? No Docker required:
+ 
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+ 
+graph-rag-cli                    # Launch the interactive operator CLI
+```
+ 
+### Operator CLI
+ 
+The CLI gives you a menu-driven interface for ingestion, graph management, and exploration:
+ 
+```bash
+# Linux / macOS (via Docker)
+./scripts/mcp-docker-run.sh
+ 
+# Windows PowerShell (via Docker)
+.\scripts\mcp-docker-run.ps1
+```
+ 
+### Running Tests
+ 
+```bash
+pytest
+```
+ 
+---
+ 
+## 🗺️ Roadmap ideas
+ 
+- [ ] Support for TypeScript / JavaScript AST parsing
+- [ ] GitHub Actions workflow for auto-ingesting library releases
+- [ ] Web UI for graph visualization
+- [ ] Multi-repo ingestion with cross-library relationship tracking
+Got an idea or found a bug? [Open an issue](https://github.com/your-repo/graph-rag-mcp/issues) — contributions are welcome.
+ 
+---
+ 
+## 📄 License
+ 
 MIT © [bewaffnete](https://github.com/bewaffnete)
