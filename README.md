@@ -1,5 +1,5 @@
 <div align="center">
-# 🧠 Graph-RAG-MCP
+🧠 Graph-RAG-MCP
  
 **Give your AI assistant a precise, queryable map of any Python codebase.**
  
