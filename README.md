@@ -1,5 +1,5 @@
 <div align="center">
-🧠 Graph-RAG-MCP
+# 🧠 Graph-RAG-MCP
  
 **Give your AI assistant a precise, queryable map of any Python codebase.**
  
@@ -11,6 +11,7 @@ Graph-RAG-MCP parses Python source code into a knowledge graph, then exposes it 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
  
 </div>
+---
  
 ## ✨ Why Graph-RAG-MCP?
  
@@ -37,8 +38,8 @@ The result: your AI assistant retrieves **surgical, context-rich evidence** inst
 ### 1 — Clone & configure
  
 ```bash
-git clone https://github.com/your-repo/graph-rag-mcp.git
-cd graph-rag-mcp
+git clone https://github.com/bewaffnete/GraphRAG-Hub.git
+cd GraphRAG-Hub
  
 # Copy the example env and fill in your credentials
 cp .env.example .env
@@ -110,16 +111,16 @@ Graph-RAG-MCP follows **Clean Architecture** — each layer has one job and one 
  
 ```
 ┌─────────────────────────────────────────────┐
-│              Interfaces                     │
+│              Interfaces                      │
 │   MCP Server (AI tools)  │  Operator CLI    │
 ├─────────────────────────────────────────────┤
-│              Application                    │
+│              Application                     │
 │   IngestLibrary  │  RetrieveCandidates      │
 ├─────────────────────────────────────────────┤
-│              Domain                         │
+│              Domain                          │
 │   GraphNode · Library · Scoring policies    │
 ├─────────────────────────────────────────────┤
-│              Infrastructure                 │
+│              Infrastructure                  │
 │  Neo4j repo · AST parser · Embeddings · YAML│
 └─────────────────────────────────────────────┘
 ```
@@ -160,7 +161,17 @@ The CLI gives you a menu-driven interface for ingestion, graph management, and e
 ```bash
 pytest
 ```
-
+ 
+---
+ 
+## 🗺️ Roadmap ideas
+ 
+- [ ] Support for TypeScript / JavaScript AST parsing
+- [ ] GitHub Actions workflow for auto-ingesting library releases
+- [ ] Web UI for graph visualization
+- [ ] Multi-repo ingestion with cross-library relationship tracking
+Got an idea or found a bug? [Open an issue](https://github.com/bewaffnete/GraphRAG-Hub/issues) — contributions are welcome.
+ 
 ---
  
 ## 📄 License
